@@ -1,0 +1,76 @@
+向量知识库地址：103.117.122.68
+
+url：https://api.zetatechs.com/v1/embeddings
+key：sk-Vr6vmAtws4c9PAQAXqKEcDAiV68l3EIIRFskB4SVIpTw5GH2
+嵌入模型名称：text-embedding-3-small
+通用模型名称：gpt-4o-mini
+
+格式：
+curl https://api.zetatechs.com/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $NEWAPI_API_KEY" \
+  -d '{
+    "input": "The food was delicious and the waiter...",
+    "model": "text-embedding-ada-002",
+    "encoding_format": "float"
+  }'
+
+响应示例：
+{
+  "object": "list",
+  "data": [
+    {
+      "object": "embedding",
+      "embedding": [
+        0.0023064255,
+        -0.009327292,
+        // ... (1536 个浮点数,用于 ada-002)
+        -0.0028842222
+      ],
+      "index": 0
+    }
+  ],
+  "model": "text-embedding-ada-002",
+  "usage": {
+    "prompt_tokens": 8,
+    "total_tokens": 8
+  }
+}
+
+批量创建嵌入：
+curl https://api.zetatechs.com/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $NEWAPI_API_KEY" \
+  -d '{
+    "input": ["The food was delicious", "The waiter was friendly"],
+    "model": "text-embedding-ada-002",
+    "encoding_format": "float"
+  }'
+
+响应示例：
+{
+  "object": "list",
+  "data": [
+    {
+      "object": "embedding",
+      "embedding": [
+        0.0023064255,
+        // ... (1536 个浮点数)
+      ],
+      "index": 0
+    },
+    {
+      "object": "embedding",
+      "embedding": [
+        -0.008815289,
+        // ... (1536 个浮点数)  
+      ],
+      "index": 1
+    }
+  ],
+  "model": "text-embedding-ada-002",
+  "usage": {
+    "prompt_tokens": 12,
+    "total_tokens": 12
+  }
+}

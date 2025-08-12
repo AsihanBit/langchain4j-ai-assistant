@@ -1,0 +1,84 @@
+spring:
+  application:
+    name: MediAssist
+  profiles:
+    active: dev
+  
+  # MySQL数据库配置
+  datasource:
+    url: ${dev.db.url}
+    username: ${dev.db.username}
+    password: ${dev.db.password}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    type: com.alibaba.druid.pool.DruidDataSource
+    
+    # Druid 连接池配置
+    druid:
+      initial-size: 5
+      min-idle: 10
+      max-active: 20
+      max-wait: 60000
+      time-between-eviction-runs-millis: 60000
+      min-evictable-idle-time-millis: 300000
+      validation-query: SELECT 1 FROM DUAL
+      test-while-idle: true
+      test-on-borrow: false
+      test-on-return: false
+      pool-prepared-statements: true
+      max-pool-prepared-statement-per-connection-size: 20
+      filters: stat,wall,slf4j
+      web-stat-filter:
+        enabled: true
+        url-pattern: "/*"
+        exclusions: "*.js,*.gif,*.jpg,*.bmp,*.png,*.css,*.ico,/druid/*"
+      stat-view-servlet:
+        enabled: true
+        url-pattern: "/druid/*"
+        allow: 127.0.0.1
+        login-username: admin
+        login-password: 123456
+ 
+  # MongoDB配置
+  data:
+    mongodb:
+      host: ${dev.mongo.host}
+      port: ${dev.mongo.port}
+      database: ${dev.mongo.database}
+langchain4j:
+  open-ai:
+    chat-model:
+      base-url: ${dev.openai.base-url}
+      api-key: ${dev.openai.api-key}
+      model-name: 'gpt-4o-mini'
+      log-requests: true
+      log-responses: true
+    streaming-chat-model:
+      base-url: ${dev.openai.base-url}
+      api-key: ${dev.openai.api-key}
+      model-name: 'gpt-4o-mini'
+      log-requests: true
+      log-responses: true
+
+# MyBatis配置
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.aiassist.mediassist.dto.entity
+  configuration:
+    map-underscore-to-camel-case: true  # 下划线转驼峰
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl  # 显示SQL日志
+
+# Weaviate向量数据库配置
+weaviate:
+  host: ${dev.weaviate.host}
+  port: ${dev.weaviate.port}
+  scheme: ${dev.weaviate.scheme}
+  collection-name: ${dev.weaviate.collection}
+  timeout: ${dev.weaviate.timeout}  # 连接超时时间(ms)
+
+# 嵌入服务配置
+embedding:
+  base-url: ${dev.embedding.base-url}
+  api-key: ${dev.embedding.api-key}
+  model-name: text-embedding-3-small
+  batch-size: 10  # 批量处理大小
+  timeout: 30000   # 请求超时时间(ms)
