@@ -17,6 +17,22 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Weaviate 实用工具类
+ *
+ * 功能概览：
+ * - 提供基于向量的相似检索（nearVector）与简化的关键词检索
+ * - 提供按 doc_id 聚合整篇文档片段、统计信息与连通性检测
+ * - 统一解析 GraphQL 响应为领域对象 {@link com.aiassist.mediassist.dto.entity.ChunkDocs}
+ *
+ * 重要参数与调优建议：
+ * - collectionName：类名（集合名），默认 "ChunkDocs"，可在 application.yml 的 weaviate.collection-name 覆盖
+ * - limit：返回的候选数量。RAG 召回建议 20~50，随后在应用层做排序/裁剪为 TopK（如 5）
+ * - certainty：相似度阈值（Weaviate v1 GraphQL 中的 _additional.certainty，范围 0.0~1.0）。
+ *   常见中文问答场景可取 0.15~0.35 之间，值越低召回越多、噪声也更多；值越高更精但可能漏召回。
+ * - 字段：本类默认取回 doc_id、chunk_index、title、section_title、tags、keywords、source_path、text
+ *   以及 _additional 中的 vector 与 certainty，便于后续调试与重排。
+ */
 @Slf4j
 @Component
 public class WeaviateUtils {
@@ -27,15 +43,22 @@ public class WeaviateUtils {
     @Autowired
     private EmbeddingService embeddingService;
 
+    /**
+     * Weaviate 中的类名（集合名）。
+     * 默认使用 "ChunkDocs"，可在 application.yml 通过 weaviate.collection-name 调整。
+     */
     @Value("${weaviate.collection-name:ChunkDocs}")
     private String collectionName;
 
     /**
-     * 基于文本查询相似文档
-     * @param queryText 查询文本
-     * @param limit 返回结果数量限制
-     * @param certainty 相似度阈值 (0.0-1.0)
-     * @return 相似文档列表
+     * 基于文本（语义向量）查询相似文档。
+     *
+     * 参数说明与建议：
+     * - queryText：用户查询文本，将通过 EmbeddingService 转为向量
+     * - limit：返回结果数量上限。用于“召回”阶段建议设置为 20~50，再在应用层筛选 TopK 注入模型
+     * - certainty：相似度阈值（0.0~1.0）。中文场景常用 0.2 左右；过高会漏召回，过低会引入噪声
+     *
+     * 返回：按 Weaviate 的近邻排序返回的候选列表，并映射为 {@link ChunkDocs}
      */
     public List<ChunkDocs> searchSimilarDocuments(String queryText, int limit, float certainty) {
         try {
@@ -44,7 +67,9 @@ public class WeaviateUtils {
             // 获取查询文本的嵌入向量
             List<Float> queryVector = embeddingService.getEmbedding(queryText);
             
-            // 构建Weaviate查询
+            // 构建 Weaviate GraphQL 查询：Get -> withNearVector + withLimit
+            // 说明：certainty 是 Weaviate 旧版 GraphQL 的语义相似度分值，并不等同于余弦相似度；
+            // 值越大越相似。此处取回 _additional.certainty 便于排序/调试。
             Result<GraphQLResponse> result = weaviateClient.graphQL().get()
                 .withClassName(collectionName)
                 .withFields(
@@ -82,10 +107,10 @@ public class WeaviateUtils {
     }
 
     /**
-     * 根据关键词查询文档（简化版，不使用Where条件）
-     * @param keywords 关键词列表
-     * @param limit 返回结果数量限制
-     * @return 相关文档列表
+     * 根据关键词查询文档（简化版）。
+     *
+     * 实现方式：将关键词拼接为查询文本，再走向量检索。
+     * 若要精细匹配（AND/OR、字段过滤、BM25），建议改为使用 GraphQL where/bm25 API。
      */
     public List<ChunkDocs> searchByKeywords(List<String> keywords, int limit) {
         try {
@@ -106,9 +131,10 @@ public class WeaviateUtils {
     }
 
     /**
-     * 根据文档ID查询文档
-     * @param docId 文档ID
-     * @return 文档列表
+     * 根据文档 ID 查询所有相关的分块。
+     *
+     * 注意：此处为演示实现，直接拉取集合中最多 100 条后在内存中过滤 doc_id。
+     * 若数据量较大，请改为 where 过滤（eq: doc_id）以减少传输量。
      */
     public List<ChunkDocs> getDocumentById(String docId) {
         try {
@@ -148,8 +174,7 @@ public class WeaviateUtils {
     }
 
     /**
-     * 获取文档统计信息
-     * @return 统计信息
+     * 获取集合统计信息（当前仅返回 count）。
      */
     public Map<String, Object> getDocumentStats() {
         try {
@@ -207,7 +232,12 @@ public class WeaviateUtils {
     }
 
     /**
-     * 解析GraphQL响应
+     * 解析 Weaviate GraphQL 响应为业务对象列表。
+     *
+     * 字段映射：
+     * - doc_id, chunk_index, title, section_title, tags, keywords, source_path, text
+     * - _additional.certainty -> {@link ChunkDocs#setSimilarity(Float)}
+     * - _additional.vector    -> {@link ChunkDocs#setVector(List)}（用于调试/可视化）
      */
     private List<ChunkDocs> parseGraphQLResponse(GraphQLResponse response) {
         List<ChunkDocs> results = new ArrayList<>();
@@ -283,7 +313,7 @@ public class WeaviateUtils {
     }
 
     /**
-     * 测试Weaviate连接
+     * 测试 Weaviate 连接可用性（/v1/.well-known/ready 类似的存活检查）。
      */
     public boolean testConnection() {
         try {

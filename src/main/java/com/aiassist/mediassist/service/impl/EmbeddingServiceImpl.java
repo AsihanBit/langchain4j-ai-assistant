@@ -1,6 +1,6 @@
 package com.aiassist.mediassist.service.impl;
 
-import com.aiassist.mediassist.config.RagConfig;
+import com.aiassist.mediassist.config.RagConfiguration;
 import com.aiassist.mediassist.service.EmbeddingService;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,7 +21,7 @@ import java.util.Map;
 public class EmbeddingServiceImpl implements EmbeddingService {
 
     @Autowired
-    private RagConfig ragConfig;
+    private RagConfiguration ragConfiguration;
 
     @Autowired
     @Qualifier("embeddingRestTemplate")
@@ -39,19 +39,19 @@ public class EmbeddingServiceImpl implements EmbeddingService {
             // 构建请求
             EmbeddingRequest request = new EmbeddingRequest();
             request.setInput(text.trim());
-            request.setModel(ragConfig.getEmbeddingModelName());
+            request.setModel(ragConfiguration.getEmbeddingModelName());
             request.setEncodingFormat("float");
 
             // 设置请求头
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.setBearerAuth(ragConfig.getEmbeddingApiKey());
+            headers.setBearerAuth(ragConfiguration.getEmbeddingApiKey());
 
             HttpEntity<EmbeddingRequest> entity = new HttpEntity<>(request, headers);
 
             // 发送请求
             ResponseEntity<EmbeddingResponse> response = restTemplate.exchange(
-                ragConfig.getEmbeddingBaseUrl(),
+                ragConfiguration.getEmbeddingBaseUrl(),
                 HttpMethod.POST,
                 entity,
                 EmbeddingResponse.class
@@ -96,19 +96,19 @@ public class EmbeddingServiceImpl implements EmbeddingService {
             // 构建批量请求
             EmbeddingRequest request = new EmbeddingRequest();
             request.setInputs(validTexts);  // 批量输入
-            request.setModel(ragConfig.getEmbeddingModelName());
+            request.setModel(ragConfiguration.getEmbeddingModelName());
             request.setEncodingFormat("float");
 
             // 设置请求头
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.setBearerAuth(ragConfig.getEmbeddingApiKey());
+            headers.setBearerAuth(ragConfiguration.getEmbeddingApiKey());
 
             HttpEntity<EmbeddingRequest> entity = new HttpEntity<>(request, headers);
 
             // 发送请求
             ResponseEntity<EmbeddingResponse> response = restTemplate.exchange(
-                ragConfig.getEmbeddingBaseUrl(),
+                ragConfiguration.getEmbeddingBaseUrl(),
                 HttpMethod.POST,
                 entity,
                 EmbeddingResponse.class

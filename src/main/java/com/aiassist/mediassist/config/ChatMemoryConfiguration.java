@@ -5,11 +5,11 @@ import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-@Configuration
+//@Configuration
 public class ChatMemoryConfiguration {
 
-    @Bean("chatMemoryProviderOpenAi")
-    public ChatMemoryProvider chatMemoryProviderOpenAi() {
+    @Bean("chatMemoryProviderInMemory")
+    public ChatMemoryProvider chatMemoryProviderInMemory() {
         return memoryId -> MessageWindowChatMemory.withMaxMessages(20);
     }
 }

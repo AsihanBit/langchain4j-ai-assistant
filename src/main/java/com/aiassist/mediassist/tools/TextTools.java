@@ -10,9 +10,23 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * LangChain4j 工具集（供 Agent 调用）
+ *
+ * 包含：
+ * - 用户管理相关工具（记名、识别、统计）
+ * - 知识库检索工具（语义检索、关键词检索、按文档获取全文）
+ * - 其他示例工具（如加密）
+ *
+ * 使用说明：
+ * - 标注 @Tool 的方法会被 LangChain4j 作为可调用的“函数/工具”暴露给大模型。
+ * - OpenAiAgent 采用 AiServiceWiringMode.AUTOMATIC，会自动发现本 @Component 中的工具。
+ */
 @Slf4j
 @Component
 public class TextTools {
@@ -34,7 +48,7 @@ public class TextTools {
         return str + num;
     }
 
-    @Tool(name = "get_user_ip_address", value = "Obtain the current user's IP address")
+    @Tool(name = "get_user_ip_address", value = "Obtain the current user's IP address. Returns the IP address string. Use this ONLY when specifically asked about IP address.")
     public String getClientIp() {
         String clientIp = UserContext.getCurrentUserIp();
         log.info("AI使用了IP工具类");
@@ -44,7 +58,7 @@ public class TextTools {
         return "用户IP地址: " + clientIp;
     }
     
-    @Tool(name = "remember_user_name", value = "Remember and bind user's name with their IP address")
+    @Tool(name = "remember_user_name", value = "Remember and bind user's name with their IP address. Returns confirmation message. Call this ONCE when user provides their name, then acknowledge the successful storage.")
     public String rememberUserName(String userName) {
         String currentIp = UserContext.getCurrentUserIp();
         if (currentIp == null || currentIp.isEmpty()) {
@@ -69,23 +83,43 @@ public class TextTools {
         }
     }
     
-    @Tool(name = "check_user_identity", value = "Check if current user is already known by their IP address")
+    @Tool(name = "check_user_identity", value = "Check if current user is already known by their IP address. Returns complete user information including name and visit history. Call this ONCE when user asks about their identity, then reply directly with the returned information.")
     public String checkUserIdentity() {
-        String currentIp = UserContext.getCurrentUserIp();
-        if (currentIp == null || currentIp.isEmpty()) {
-            return "无法获取用户IP地址";
-        }
+        log.info("🔧 [TOOL] check_user_identity 开始执行");
         
-        User user = userService.getUserByIpAddress(currentIp);
-        if (user != null) {
-            // 更新访问信息
-            userService.updateUserVisit(user.getId());
-            return String.format("我认识你！你是 %s，这是你第 %d 次访问，上次见面是 %s。欢迎回来！", 
-                user.getUserName(), 
-                user.getVisitCount() + 1,  // +1 因为刚刚更新了访问次数
-                user.getLastSeen().toString());
-        } else {
-            return "这是我第一次见到来自 " + currentIp + " 的用户，请告诉我你的名字，我会记住你的。";
+        try {
+            String currentIp = UserContext.getCurrentUserIp();
+            log.info("🔧 [TOOL] 获取到 IP: {}", currentIp);
+            
+            if (currentIp == null || currentIp.isEmpty()) {
+                String result = "无法获取用户IP地址";
+                log.info("🔧 [TOOL] 返回结果: {}", result);
+                return result;
+            }
+            
+            User user = userService.getUserByIpAddress(currentIp);
+            log.info("🔧 [TOOL] 查询用户结果: {}", user != null ? user.getUserName() : "未找到");
+            
+            if (user != null) {
+                // 更新访问信息
+                userService.updateUserVisit(user.getId());
+                String result = String.format("我认识你！你是 %s，这是你第 %d 次访问，上次见面是 %s。欢迎回来！", 
+                    user.getUserName(), 
+                    user.getVisitCount() + 1,  // +1 因为刚刚更新了访问次数
+                    user.getLastSeen().toString());
+                log.info("🔧 [TOOL] 返回结果: {}", result);
+                log.info("🔧 [TOOL] check_user_identity 执行完成，准备返回结果");
+                return result;
+            } else {
+                String result = "这是我第一次见到来自 " + currentIp + " 的用户，请告诉我你的名字，我会记住你的。";
+                log.info("🔧 [TOOL] 返回结果: {}", result);
+                return result;
+            }
+        } catch (Exception e) {
+            log.error("🚨 [TOOL] check_user_identity 执行异常", e);
+            String result = "检查用户身份时发生错误：" + e.getMessage();
+            log.info("🔧 [TOOL] 异常返回结果: {}", result);
+            return result;
         }
     }
     
@@ -125,7 +159,14 @@ public class TextTools {
         return sb.toString();
     }
     
-    @Tool(name = "search_knowledge_base", value = "Search for relevant information from the knowledge base using semantic similarity")
+    /**
+     * 语义检索知识库，并返回若干条“可直接注入模型的上下文文本”。
+     *
+     * 调参建议：
+     * - 召回阶段（searchSimilarDocuments）：limit 建议 20~50，certainty 建议 0.15~0.35
+     * - 注入阶段：一般仅取 TopK（如 3~5）完整文本，避免超长
+     */
+    @Tool(name = "search_knowledge_base", value = "Search for relevant information from the knowledge base using semantic similarity. Returns matching documents. Call this ONCE per query, then provide answer based on results.")
     public String searchKnowledgeBase(String query) {
         if (query == null || query.trim().isEmpty()) {
             return "查询内容不能为空";
@@ -134,8 +175,9 @@ public class TextTools {
         try {
             log.info("AI使用知识库搜索工具，查询: {}", query);
             
-            // 搜索相似文档，相似度阈值0.7，最多返回5个结果
-            List<ChunkDocs> results = weaviateUtils.searchSimilarDocuments(query.trim(), 5, 0.3f);
+            // 搜索相似文档：提高召回量，降低阈值以获得更多相关结果
+            // 相似度阈值 0.2，最多返回 20 个结果（召回阶段）
+            List<ChunkDocs> results = weaviateUtils.searchSimilarDocuments(query.trim(), 20, 0.2f);
             
             if (results.isEmpty()) {
                 return "很抱歉，在知识库中没有找到与\"" + query + "\"相关的信息。";
@@ -144,16 +186,29 @@ public class TextTools {
             StringBuilder response = new StringBuilder();
             response.append("根据你的查询\"").append(query).append("\"，我在知识库中找到了以下相关信息：\n\n");
             
-            for (int i = 0; i < results.size(); i++) {
+            // 仅取前 5 个结果注入（构造给模型的上下文），每条包含完整文本
+            int maxResults = Math.min(results.size(), 5);
+            for (int i = 0; i < maxResults; i++) {
                 ChunkDocs doc = results.get(i);
                 response.append("📄 **").append(i + 1).append(". ").append(doc.getShortDescription()).append("**\n");
-                response.append("📍 相似度: ").append(String.format("%.2f", doc.getSimilarity() * 100)).append("%\n");
+                response.append("📍 相似度: ").append(String.format("%.4f", doc.getSimilarity() * 100)).append("%\n");
                 response.append("🔑 关键词: ").append(doc.getKeywordsString()).append("\n");
                 response.append("📝 内容摘要: ").append(doc.getTextSummary()).append("\n");
                 response.append("📂 来源: ").append(doc.getSourcePath()).append("\n\n");
+                response.append("📂 标题: ").append(doc.getTitle()).append("\n\n");
+                response.append("📂 章节: ").append(doc.getSectionTitle()).append("\n\n");
+
+
+                // 关键改进：返回完整文本内容而不是摘要
+                String fullText = doc.getText() != null ? doc.getText().strip() : "";
+                if (!fullText.isEmpty()) {
+                    response.append(fullText).append("\n\n");
+                } else {
+                    // 如果没有完整文本，才使用摘要作为备选
+                    response.append("📝 内容摘要: ").append(doc.getTextSummary()).append("\n\n");
+                }
             }
             
-            response.append("💡 如需查看完整内容，请告诉我你感兴趣的文档编号。");
             return response.toString();
             
         } catch (Exception e) {
@@ -280,5 +335,13 @@ public class TextTools {
             log.error("获取知识库统计失败", e);
             return "获取知识库统计时出现错误: " + e.getMessage();
         }
+    }
+
+    @Tool(name = "test_simple_tool", value = "A simple test tool that always returns a fixed message. Use this to test tool execution.")
+    public String testSimpleTool() {
+        log.info("🧪 [TEST_TOOL] 简单测试工具被调用");
+        String result = "测试工具执行成功！这是一个固定的返回消息。";
+        log.info("🧪 [TEST_TOOL] 返回结果: {}", result);
+        return result;
     }
 }

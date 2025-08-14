@@ -41,23 +41,70 @@ spring:
   # MongoDB配置
   data:
     mongodb:
+      # 服务器地址和端口
       host: ${dev.mongo.host}
       port: ${dev.mongo.port}
+      # 数据库名称
       database: ${dev.mongo.database}
+      # 认证信息（如果需要）
+      username: ${dev.mongo.username:}
+      password: ${dev.mongo.password:}
+      # 认证数据库（通常是admin）
+      authentication-database: ${dev.mongo.auth-db:admin}
+      # 连接选项
+      options:
+        # 连接超时时间（毫秒）
+        connect-timeout: 10000
+        # Socket超时时间（毫秒）
+        socket-timeout: 30000
+        # 服务器选择超时时间（毫秒）
+        server-selection-timeout: 30000
+        # 最大等待时间（毫秒）
+        max-wait-time: 60000
+        # 连接池最大连接数
+        max-connection-pool-size: 100
+        # 连接池最小连接数
+        min-connection-pool-size: 5
+        # 连接空闲时间（毫秒）
+        max-connection-idle-time: 60000
+        # 连接生存时间（毫秒）
+        max-connection-life-time: 300000
+        # 启用SSL（如果服务器支持）
+        ssl-enabled: false
+        # 是否验证SSL证书
+        ssl-invalid-host-name-allowed: true
 langchain4j:
   open-ai:
     chat-model:
       base-url: ${dev.openai.base-url}
       api-key: ${dev.openai.api-key}
       model-name: 'gpt-4o-mini'
+#      model-name: 'gpt-4o-2024-11-20'
+      temperature: 0.2
       log-requests: true
       log-responses: true
+      # 网络超时配置（解决Connection reset问题）
+      timeout: 60s           # 总超时时间60秒
+      connect-timeout: 30s   # 连接超时30秒  
+      read-timeout: 45s      # 读取超时45秒
+      write-timeout: 30s     # 写入超时30秒
+      # 重试配置
+      max-retries: 3         # 最大重试3次
+      # 调用频率限制
+      max-requests-per-minute: 30
     streaming-chat-model:
       base-url: ${dev.openai.base-url}
       api-key: ${dev.openai.api-key}
       model-name: 'gpt-4o-mini'
+      temperature: 0.2
       log-requests: true
       log-responses: true
+      # 流式模型的超时配置
+      timeout: 120s          # 流式响应需要更长时间
+      connect-timeout: 30s   
+      read-timeout: 90s      # 流式读取超时90秒
+      write-timeout: 30s
+      max-retries: 3
 
 # MyBatis配置
 mybatis:
@@ -82,3 +129,18 @@ embedding:
   model-name: text-embedding-3-small
   batch-size: 10  # 批量处理大小
   timeout: 30000   # 请求超时时间(ms)
+
+# 聊天记忆配置
+chat:
+  memory:
+    # 是否启用MongoDB持久化存储 - 重新启用用于诊断
+    enable-mongodb: true
+    # 最大消息窗口大小
+    max-messages: ${dev.chat.memory.max-messages:10}
+
+logging:
+  level:
+    com:
+      aiassist:
+        mediassist: INFO
+#          tools: INFO

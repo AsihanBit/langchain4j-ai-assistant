@@ -8,12 +8,13 @@ import dev.langchain4j.service.spring.AiServiceWiringMode;
 import reactor.core.publisher.Flux;
 
 @AiService(wiringMode = AiServiceWiringMode.AUTOMATIC,
-        chatMemoryProvider = "chatMemoryProviderOpenAi")
+        chatMemoryProvider = "chatMemoryProviderOpenAi",
+        tools = {"textTools"})
 public interface OpenAiAgent {
-    
+
     @SystemMessage(fromResource = "prompts/system-prompt.txt")
-    
-    // 非流式
+
+        // 非流式
     String chat(@MemoryId String memoryId, @UserMessage String input);
 
     // 流式：直接返回 Flux（LangChain4j 会自动适配）

@@ -11,11 +11,11 @@ public class UserContext {
     public static String getCurrentUserIp() {
         return currentUserIp.get();
     }
-    
+
     public static void setCurrentMemoryId(String memoryId) {
         currentMemoryId.set(memoryId);
     }
-    
+
     public static String getCurrentMemoryId() {
         return currentMemoryId.get();
     }
