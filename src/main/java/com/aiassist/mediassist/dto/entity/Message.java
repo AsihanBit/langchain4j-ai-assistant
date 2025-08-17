@@ -12,6 +12,7 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -69,6 +70,12 @@ public class Message {
     @Field("metadata")
     private Map<String, Object> metadata;
 
+    /**
+     * 工具调用记录数组，存储本回合的工具调用信息
+     */
+    @Field("tool_calls")
+    private List<ToolCall> toolCalls;
+
     // ----------------- 嵌套类型 -----------------
 
     @Data
@@ -88,6 +95,29 @@ public class Message {
         private Integer tokensInput;
         @Field("tokens_output")
         private Integer tokensOutput;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ToolCall {
+        /**
+         * 工具名称
+         */
+        @Field("tool_name")
+        private String toolName;
+        
+        /**
+         * 工具执行结果
+         */
+        @Field("result")
+        private String result;
+        
+        /**
+         * 执行时间戳
+         */
+        @Field("timestamp")
+        private LocalDateTime timestamp;
     }
 }
 

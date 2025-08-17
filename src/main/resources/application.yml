@@ -40,6 +40,18 @@ spring:
  
   # MongoDB配置
   data:
+    redis:
+      host: ${dev.redis.host}
+      port: 6379
+      password: ${dev.redis.password}
+      database: 1
+      # Redis连接池配置
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: -1ms
     mongodb:
       # 服务器地址和端口
       host: ${dev.mongo.host}
@@ -73,6 +85,8 @@ spring:
         ssl-enabled: false
         # 是否验证SSL证书
         ssl-invalid-host-name-allowed: true
+
+
 langchain4j:
   open-ai:
     chat-model:
@@ -137,6 +151,9 @@ chat:
     enable-mongodb: true
     # 最大消息窗口大小
     max-messages: ${dev.chat.memory.max-messages:10}
+  cache:
+    expire-hours: 24        # 缓存过期时间（小时）
+    max-messages: 50        # 每个会话最大消息数量
 
 logging:
   level:

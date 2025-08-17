@@ -2,11 +2,9 @@ package com.aiassist.mediassist.store;
 
 import com.aiassist.mediassist.dto.entity.Conversation;
 import com.aiassist.mediassist.dto.entity.Message;
-import com.aiassist.mediassist.service.ChatMessageCacheService;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import lombok.extern.slf4j.Slf4j;
@@ -35,9 +33,6 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
     @Autowired
     private MongoTemplate mongoTemplate;
 
-    @Autowired
-    private ChatMessageCacheService cacheService;
-
     /**
      * 获取指定 memoryId 的所有消息
      */
@@ -50,15 +45,6 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
         StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
         log.info("🔍 [MEMORY] 调用栈: {}", stackTrace.length > 3 ? stackTrace[3].toString() : "unknown");
 
-        // 1. 首先尝试从Redis缓存获取
-        List<ChatMessage> cachedMessages = cacheService.getMessages(memoryIdStr);
-        if (cachedMessages != null) {
-            log.info("✅ [CACHE] 从Redis缓存获取到 {} 条消息", cachedMessages.size());
-            return cachedMessages;
-        }
-
-        // 2. 缓存未命中，从MongoDB获取
-        log.info("🔍 [MONGODB] 缓存未命中，从MongoDB获取消息: memoryId={}", memoryIdStr);
         try {
             // 按 turn_index 排序查询消息
             Query query = Query.query(Criteria.where("memory_id").is(memoryIdStr))
@@ -75,60 +61,22 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
                         log.info("🔍 [CONVERT] 转换用户消息: 长度={}", message.getContent().getPrompt().length());
                     }
                     if (message.getContent().getCompletion() != null && !message.getContent().getCompletion().trim().isEmpty()) {
-                        // 检查是否有工具调用信息
-                        if (message.getToolCalls() != null && !message.getToolCalls().isEmpty()) {
-                            // 如果有工具调用，需要创建包含工具调用的AI消息
-                            log.info("🔍 [CONVERT] 发现工具调用: {}", message.getToolCalls().size());
-                            
-                            // 为每个工具调用创建正确的AI消息和工具执行结果消息
-                            for (Message.ToolCall toolCall : message.getToolCalls()) {
-                                // 生成工具调用ID（使用turn_index和工具名称）
-                                String toolCallId = String.format("call_%d_%s", message.getTurnIndex(), toolCall.getToolName());
-                                
-                                // 创建包含工具调用的AI消息
-                                dev.langchain4j.agent.tool.ToolExecutionRequest toolRequest = 
-                                    dev.langchain4j.agent.tool.ToolExecutionRequest.builder()
-                                        .id(toolCallId)
-                                        .name(toolCall.getToolName())
-                                        .arguments("{}") // 使用默认空参数，因为ToolCall类没有存储arguments
-                                        .build();
-                                chatMessages.add(AiMessage.from(toolRequest));
-                                log.info("🔍 [CONVERT] 添加AI工具调用消息: {} -> {}", toolCall.getToolName(), toolCallId);
-                                
-                                // 添加对应的工具执行结果消息
-                                ToolExecutionResultMessage toolResultMessage = ToolExecutionResultMessage.from(
-                                    toolCallId, 
-                                    toolCall.getToolName(), 
-                                    toolCall.getResult()
-                                );
-                                chatMessages.add(toolResultMessage);
-                                log.info("🔍 [CONVERT] 添加工具执行结果: {} -> {}", toolCall.getToolName(), toolCall.getResult().substring(0, Math.min(50, toolCall.getResult().length())));
-                            }
-                        } else {
-                            // 普通AI消息
-                            String completion = message.getContent().getCompletion();
-                            log.info("🔍 [CONVERT] 转换AI回复: 长度={}", completion.length());
-                            chatMessages.add(AiMessage.from(completion));
-                        }
+                        // 简单地转换为AI消息，不要重构为工具消息
+                        String completion = message.getContent().getCompletion();
+                        log.info("🔍 [CONVERT] 转换AI回复: 长度={}", completion.length());
+                        chatMessages.add(AiMessage.from(completion));
                     }
                 }
             }
 
-            log.info("🔍 [MONGODB] 从MongoDB加载了 {} 条消息", chatMessages.size());
+            log.info("🔍 [MEMORY] 从MongoDB加载了 {} 条消息", chatMessages.size());
             if (!chatMessages.isEmpty()) {
-                log.info("🔍 [MONGODB] 最后一条消息: {}", chatMessages.get(chatMessages.size() - 1).toString().substring(0, Math.min(100, chatMessages.get(chatMessages.size() - 1).toString().length())));
+                log.info("🔍 [MEMORY] 最后一条消息: {}", chatMessages.get(chatMessages.size() - 1).toString().substring(0, Math.min(100, chatMessages.get(chatMessages.size() - 1).toString().length())));
             }
-
-            // 3. 将结果缓存到Redis
-            if (!chatMessages.isEmpty()) {
-                cacheService.updateMessages(memoryIdStr, chatMessages);
-                log.info("💾 [CACHE] 已将消息缓存到Redis: memoryId={}, 消息数量={}", memoryIdStr, chatMessages.size());
-            }
-
             return chatMessages;
 
         } catch (Exception e) {
-            log.error("❌ [MONGODB] 获取聊天记忆失败: memoryId={}", memoryIdStr, e);
+            log.error("获取聊天记忆失败: memoryId={}", memoryIdStr, e);
             return new ArrayList<>();
         }
     }
@@ -153,12 +101,20 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
         }
 
         try {
-            // 1. 首先更新Redis缓存（快速响应）
-            cacheService.updateMessages(memoryIdStr, messages);
-            log.info("💾 [CACHE] 已更新Redis缓存: memoryId={}", memoryIdStr);
+            log.info("🗑️ [CLEANUP] 开始删除旧消息: memoryId={}", memoryIdStr);
+            // 删除旧消息（但不删除会话记录）
+            Query messageQuery = Query.query(Criteria.where("memory_id").is(memoryIdStr));
+            var deleteResult = mongoTemplate.remove(messageQuery, Message.class);
+            log.info("🗑️ [CLEANUP] 删除旧消息完成: memoryId={}, 删除数量={}", memoryIdStr, deleteResult.getDeletedCount());
 
-            // 2. 异步更新MongoDB（后台持久化）
-            updateMongoDBAsync(memoryIdStr, messages);
+            // 确保会话存在（仅创建会话记录，不触发其他业务逻辑）
+            ensureConversationExists(memoryIdStr);
+
+            // 将 LangChain4j 消息转换为我们的格式并保存
+            saveLangChainMessages(memoryIdStr, messages);
+
+            // 更新会话统计信息
+            updateConversationStats(memoryIdStr);
 
             log.info("✅ [UPDATE] 更新聊天记忆成功: memoryId={}", memoryIdStr);
 
@@ -169,58 +125,26 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
     }
 
     /**
-     * 异步更新MongoDB（避免阻塞主流程）
-     */
-    private void updateMongoDBAsync(String memoryId, List<ChatMessage> messages) {
-        // 使用新线程异步执行MongoDB更新
-        new Thread(() -> {
-            try {
-                log.info("🗑️ [MONGODB] 开始删除旧消息: memoryId={}", memoryId);
-                // 删除旧消息（但不删除会话记录）
-                Query messageQuery = Query.query(Criteria.where("memory_id").is(memoryId));
-                var deleteResult = mongoTemplate.remove(messageQuery, Message.class);
-                log.info("🗑️ [MONGODB] 删除旧消息完成: memoryId={}, 删除数量={}", memoryId, deleteResult.getDeletedCount());
-
-                // 确保会话存在（仅创建会话记录，不触发其他业务逻辑）
-                ensureConversationExists(memoryId);
-
-                // 将 LangChain4j 消息转换为我们的格式并保存
-                saveLangChainMessages(memoryId, messages);
-
-                // 更新会话统计信息
-                updateConversationStats(memoryId);
-
-                log.info("✅ [MONGODB] 异步更新MongoDB成功: memoryId={}", memoryId);
-            } catch (Exception e) {
-                log.error("❌ [MONGODB] 异步更新MongoDB失败: memoryId={}", memoryId, e);
-            }
-        }).start();
-    }
-
-    /**
      * 删除指定 memoryId 的所有消息
      */
     @Override
     public void deleteMessages(Object memoryId) {
         String memoryIdStr = memoryId.toString();
-        log.debug("🗑️ [MEMORY] 删除聊天记忆: memoryId={}", memoryIdStr);
+        log.debug("删除聊天记忆: memoryId={}", memoryIdStr);
 
         try {
-            // 1. 删除Redis缓存
-            cacheService.deleteMessages(memoryIdStr);
-            log.debug("🗑️ [CACHE] 删除Redis缓存成功: memoryId={}", memoryIdStr);
-
-            // 2. 删除MongoDB数据
+            // 删除消息
             Query messageQuery = Query.query(Criteria.where("memory_id").is(memoryIdStr));
             mongoTemplate.remove(messageQuery, Message.class);
 
+            // 删除会话
             Query conversationQuery = Query.query(Criteria.where("memory_id").is(memoryIdStr));
             mongoTemplate.remove(conversationQuery, Conversation.class);
 
-            log.debug("✅ [MEMORY] 删除聊天记忆成功: memoryId={}", memoryIdStr);
+            log.debug("删除聊天记忆成功: memoryId={}", memoryIdStr);
 
         } catch (Exception e) {
-            log.error("❌ [MEMORY] 删除聊天记忆失败: memoryId={}", memoryIdStr, e);
+            log.error("删除聊天记忆失败: memoryId={}", memoryIdStr, e);
         }
     }
 
@@ -424,37 +348,15 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
                     continue;
                 }
 
-                // 工具执行结果消息 - 需要单独保存，不能合并到completion中
+                // 工具执行结果消息
                 dev.langchain4j.data.message.ToolExecutionResultMessage toolResult =
                         (dev.langchain4j.data.message.ToolExecutionResultMessage) message;
-                
-                // 先保存当前的回合（如果有的话）
-                if (currentPrompt != null && completionBuilder.length() > 0) {
-                    String completion = completionBuilder.toString();
-                    log.info("💬 [MESSAGES] 保存回合 {}: prompt长度={}, completion长度={}",
-                            turnIndex, currentPrompt.length(), completion.length());
-                    mongoMessages.add(createMongoMessage(memoryId, turnIndex++, currentPrompt, completion));
-                    completionBuilder.setLength(0);
+                if (completionBuilder.length() > 0) {
+                    completionBuilder.append(" ");
                 }
-                
-                // 创建工具调用记录
-                Message.ToolCall toolCall = new Message.ToolCall();
-                toolCall.setToolName(toolResult.toolName());
-                toolCall.setResult(toolResult.text());
-                toolCall.setTimestamp(LocalDateTime.now());
-                
-                // 创建包含工具调用的消息
-                Message toolMessage = Message.builder()
-                        .id(UUID.randomUUID().toString())
-                        .memoryId(memoryId)
-                        .turnIndex(turnIndex++)
-                        .content(new Message.Content("", "工具执行结果"))
-                        .sendTime(LocalDateTime.now())
-                        .toolCalls(List.of(toolCall))
-                        .build();
-                
-                mongoMessages.add(toolMessage);
-                log.info("💬 [MESSAGES] 保存工具执行结果: {} -> {}", toolResult.toolName(), toolResult.text().substring(0, Math.min(50, toolResult.text().length())));
+                // 明确添加指令，告诉AI不要再次调用工具
+                completionBuilder.append("【工具已执行完成，结果：").append(toolResult.text()).append("。请直接基于此结果回答用户，不要再次调用任何工具。】");
+                log.info("💬 [MESSAGES] 工具执行结果: 长度={}", toolResult.text().length());
             } else if (message instanceof SystemMessage) {
                 // 系统消息单独处理，暂时跳过
                 log.info("💬 [MESSAGES] 跳过系统消息: 长度={}", ((SystemMessage) message).text().length());
