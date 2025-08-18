@@ -44,7 +44,7 @@ public class ChatMessageWrapper {
      * 最大消息数量
      */
     @Builder.Default
-    private int maxMessageCount = 50;
+    private int maxMessageCount = 10;
     
     /**
      * 当前turn_index
@@ -65,7 +65,11 @@ public class ChatMessageWrapper {
         private LocalDateTime timestamp;
         
         public enum MessageType {
-            USER, AI, SYSTEM, TOOL_RESULT
+            USER,           // 用户消息
+            AI,             // AI回复消息
+            TOOL_CALL,      // AI工具调用消息
+            TOOL_RESULT,    // 工具执行结果消息
+            SYSTEM          // 系统消息
         }
         
         /**
@@ -80,22 +84,24 @@ public class ChatMessageWrapper {
                 message.setType(MessageType.USER);
                 message.setContent(((UserMessage) chatMessage).singleText());
             } else if (chatMessage instanceof AiMessage) {
-                message.setType(MessageType.AI);
                 AiMessage aiMessage = (AiMessage) chatMessage;
                 // 处理AI消息，可能包含工具调用
-                if (aiMessage.text() != null) {
+                if (aiMessage.text() != null && !aiMessage.text().trim().isEmpty()) {
+                    message.setType(MessageType.AI);
                     message.setContent(aiMessage.text());
                 } else if (aiMessage.hasToolExecutionRequests()) {
-                    // 如果有工具调用，记录工具调用信息
+                    // 如果有工具调用，设置为TOOL_CALL类型
+                    message.setType(MessageType.TOOL_CALL);
                     String toolName = aiMessage.toolExecutionRequests().get(0).name();
                     String toolArgs = aiMessage.toolExecutionRequests().get(0).arguments();
                     String toolId = aiMessage.toolExecutionRequests().get(0).id();
                     // 存储完整的工具调用信息，包括ID
-                    String toolCallInfo = String.format("TOOL_CALL|ID:%s|NAME:%s|ARGS:%s", 
+                    String toolCallInfo = String.format("TOOL_CALL|ID:%s|NAME:%s|ARGS:%s",
                         toolId, toolName, toolArgs);
                     message.setContent(toolCallInfo);
                 } else {
                     // 如果既没有文本也没有工具调用，使用默认内容
+                    message.setType(MessageType.AI);
                     message.setContent("AI回复");
                 }
             } else if (chatMessage instanceof SystemMessage) {
@@ -121,14 +127,16 @@ public class ChatMessageWrapper {
                 case USER:
                     return UserMessage.from(content);
                 case AI:
-                    // 检查是否是工具调用信息
+                    return AiMessage.from(content);
+                case TOOL_CALL:
+                    // 处理工具调用信息
                     if (content.startsWith("TOOL_CALL|")) {
                         // 解析工具调用信息并重建AI消息
                         String[] parts = content.split("\\|");
                         String id = null;
                         String name = null;
                         String args = null;
-                        
+
                         for (String part : parts) {
                             if (part.startsWith("ID:")) {
                                 id = part.substring(3);
@@ -138,10 +146,10 @@ public class ChatMessageWrapper {
                                 args = part.substring(5);
                             }
                         }
-                        
+
                         if (id != null && name != null && args != null) {
                             // 重建工具调用请求
-                            dev.langchain4j.agent.tool.ToolExecutionRequest toolRequest = 
+                            dev.langchain4j.agent.tool.ToolExecutionRequest toolRequest =
                                 dev.langchain4j.agent.tool.ToolExecutionRequest.builder()
                                     .id(id)
                                     .name(name)
@@ -153,7 +161,7 @@ public class ChatMessageWrapper {
                             return AiMessage.from("AI正在处理您的请求...");
                         }
                     } else {
-                        return AiMessage.from(content);
+                        return AiMessage.from("工具调用: " + content);
                     }
                 case SYSTEM:
                     return SystemMessage.from(content);
@@ -220,20 +228,58 @@ public class ChatMessageWrapper {
                 .maxMessageCount(maxCount)
                 .lastAccessTime(LocalDateTime.now())
                 .build();
-        
+
         if (chatMessages != null) {
             wrapper.messages = new ArrayList<>();
-            for (int i = 0; i < chatMessages.size(); i++) {
-                ChatMessage chatMessage = chatMessages.get(i);
-                SerializableMessage message = SerializableMessage.fromChatMessage(chatMessage, i + 1);
+
+            // 处理消息，保持原有的turn_index逻辑
+            // SystemMessage应该在turn_index=0，其他消息按顺序排列
+            int maxTurnIndex = 0;
+
+            for (ChatMessage chatMessage : chatMessages) {
+                int turnIndex;
+                if (chatMessage instanceof SystemMessage) {
+                    turnIndex = 0; // SystemMessage固定在turn_index=0
+                } else {
+                    maxTurnIndex++;
+                    turnIndex = maxTurnIndex;
+                }
+
+                SerializableMessage message = SerializableMessage.fromChatMessage(chatMessage, turnIndex);
                 wrapper.messages.add(message);
-                wrapper.currentTurnIndex = i + 1;
             }
+
+            // 设置当前的turn_index为最大的非SystemMessage的turn_index
+            wrapper.currentTurnIndex = maxTurnIndex;
         }
-        
+
         return wrapper;
     }
-    
+
+    /**
+     * 从 ChatMessage 列表创建包装类，支持指定起始turn_index
+     */
+    public static ChatMessageWrapper fromChatMessages(String memoryId, List<ChatMessage> chatMessages, int maxCount, int startTurnIndex) {
+        ChatMessageWrapper wrapper = ChatMessageWrapper.builder()
+                .memoryId(memoryId)
+                .maxMessageCount(maxCount)
+                .lastAccessTime(LocalDateTime.now())
+                .build();
+
+        if (chatMessages != null) {
+            wrapper.messages = new ArrayList<>();
+            int turnIndex = startTurnIndex;
+            for (ChatMessage chatMessage : chatMessages) {
+                SerializableMessage message = SerializableMessage.fromChatMessage(chatMessage, turnIndex++);
+                wrapper.messages.add(message);
+            }
+            // 设置当前的turn_index为最后一个消息的turn_index
+            wrapper.currentTurnIndex = turnIndex - 1;
+        }
+
+        return wrapper;
+    }
+
     /**
      * 更新访问时间
      */

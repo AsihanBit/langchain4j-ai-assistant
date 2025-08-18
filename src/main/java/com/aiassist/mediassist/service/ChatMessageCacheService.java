@@ -2,6 +2,10 @@ package com.aiassist.mediassist.service;
 
 import com.aiassist.mediassist.dto.entity.ChatMessageWrapper;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.data.message.SystemMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -10,7 +14,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 /**
  * ChatMessage Redis 缓存服务
@@ -30,9 +33,9 @@ public class ChatMessageCacheService {
     private int cacheExpireHours;
 
     /**
-     * 最大消息数量
+     * Redis缓存中的最大消息数量（包含1个SystemMessage + memoryMaxSize条实际消息）
      */
-    @Value("${chat.cache.max-messages:50}")
+    @Value("${chat.cache.max-size:7}")
     private int maxMessageCount;
 
     /**
@@ -45,6 +48,72 @@ public class ChatMessageCacheService {
      */
     private String getCacheKey(String memoryId) {
         return CACHE_KEY_PREFIX + memoryId;
+    }
+
+    /**
+     * 获取消息内容用于日志显示
+     */
+    private String getMessageContentForLog(ChatMessage msg) {
+        try {
+            if (msg instanceof UserMessage) {
+                String text = ((UserMessage) msg).singleText();
+                return text != null ? text.substring(0, Math.min(30, text.length())) + "..." : "null";
+            } else if (msg instanceof AiMessage) {
+                String text = ((AiMessage) msg).text();
+                return text != null ? text.substring(0, Math.min(30, text.length())) + "..." : "null";
+            } else if (msg instanceof ToolExecutionResultMessage) {
+                String text = ((ToolExecutionResultMessage) msg).text();
+                return text != null ? text.substring(0, Math.min(30, text.length())) + "..." : "null";
+            } else if (msg instanceof SystemMessage) {
+                String text = ((SystemMessage) msg).text();
+                return text != null ? text.substring(0, Math.min(30, text.length())) + "..." : "null";
+            } else {
+                return msg.toString().substring(0, Math.min(30, msg.toString().length())) + "...";
+            }
+        } catch (Exception e) {
+            return "error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * 比较两条消息是否相同
+     */
+    private boolean isSameMessage(ChatMessage msg1, ChatMessage msg2) {
+        if (msg1 == null || msg2 == null) {
+            return msg1 == msg2;
+        }
+
+        // 类型不同则不同
+        if (!msg1.type().equals(msg2.type())) {
+            return false;
+        }
+
+        try {
+            // 比较消息内容
+            if (msg1 instanceof UserMessage && msg2 instanceof UserMessage) {
+                String text1 = ((UserMessage) msg1).singleText();
+                String text2 = ((UserMessage) msg2).singleText();
+                return java.util.Objects.equals(text1, text2);
+            } else if (msg1 instanceof AiMessage && msg2 instanceof AiMessage) {
+                String text1 = ((AiMessage) msg1).text();
+                String text2 = ((AiMessage) msg2).text();
+                return java.util.Objects.equals(text1, text2);
+            } else if (msg1 instanceof ToolExecutionResultMessage && msg2 instanceof ToolExecutionResultMessage) {
+                String text1 = ((ToolExecutionResultMessage) msg1).text();
+                String text2 = ((ToolExecutionResultMessage) msg2).text();
+                return java.util.Objects.equals(text1, text2);
+            } else if (msg1 instanceof SystemMessage && msg2 instanceof SystemMessage) {
+                String text1 = ((SystemMessage) msg1).text();
+                String text2 = ((SystemMessage) msg2).text();
+                return java.util.Objects.equals(text1, text2);
+            } else {
+                // 对于其他类型，使用toString比较
+                return msg1.toString().equals(msg2.toString());
+            }
+        } catch (Exception e) {
+            log.warn("比较消息时出错: {}", e.getMessage());
+            return false;
+        }
     }
 
     /**
@@ -72,16 +141,40 @@ public class ChatMessageCacheService {
     }
 
     /**
-     * 更新缓存消息
+     * 更新缓存消息（增量更新）
      */
     public void updateMessages(String memoryId, List<ChatMessage> messages) {
         String cacheKey = getCacheKey(memoryId);
-        log.debug("💾 [CACHE] 更新Redis缓存: memoryId={}, 消息数量={}", memoryId, messages.size());
+        log.info("💾 [CACHE] 增量更新Redis缓存: memoryId={}, 消息数量={}", memoryId, messages.size());
+
+        // 输出传入的消息列表详情
+        log.info("💾 [CACHE] 传入的消息列表详情:");
+        for (int i = 0; i < Math.min(messages.size(), 10); i++) {
+            ChatMessage msg = messages.get(i);
+            String content = getMessageContentForLog(msg);
+            log.info("  [{}] 类型: {}, 内容: {}", i, msg.type().toString(), content);
+        }
+        if (messages.size() > 10) {
+            log.info("  ... 还有 {} 条消息", messages.size() - 10);
+        }
 
         try {
+            // 直接替换整个缓存，避免重复消息问题
             ChatMessageWrapper wrapper = ChatMessageWrapper.fromChatMessages(memoryId, messages, maxMessageCount);
             redisTemplate.opsForValue().set(cacheKey, wrapper, Duration.ofHours(cacheExpireHours));
-            log.debug("✅ [CACHE] 更新Redis缓存成功: memoryId={}", memoryId);
+
+            log.info("✅ [CACHE] 替换Redis缓存成功: memoryId={}, 消息数量={}, 当前turn_index={}",
+                    memoryId, wrapper.getMessageCount(), wrapper.getCurrentTurnIndex());
+
+            // 输出Redis中的消息详情
+            log.info("💾 [CACHE] Redis中的消息详情:");
+            List<ChatMessage> cachedMessages = wrapper.getChatMessages();
+            for (int i = 0; i < cachedMessages.size(); i++) {
+                ChatMessage msg = cachedMessages.get(i);
+                String content = getMessageContentForLog(msg);
+                log.info("  [{}] 类型: {}, 内容: {}", i, msg.type().toString(), content);
+            }
+
         } catch (Exception e) {
             log.error("❌ [CACHE] 更新Redis缓存失败: memoryId={}", memoryId, e);
         }
@@ -108,6 +201,22 @@ public class ChatMessageCacheService {
             log.debug("✅ [CACHE] 添加消息到Redis成功: memoryId={}, 当前消息数量={}", memoryId, wrapper.getMessageCount());
         } catch (Exception e) {
             log.error("❌ [CACHE] 添加消息到Redis失败: memoryId={}", memoryId, e);
+        }
+    }
+
+    /**
+     * 直接保存包装器到Redis（保持原有turnIndex）
+     */
+    public void saveWrapper(String memoryId, ChatMessageWrapper wrapper) {
+        String cacheKey = getCacheKey(memoryId);
+        log.info("💾 [CACHE] 直接保存包装器到Redis: memoryId={}", memoryId);
+
+        try {
+            redisTemplate.opsForValue().set(cacheKey, wrapper, Duration.ofHours(cacheExpireHours));
+            log.info("✅ [CACHE] 直接保存包装器成功: memoryId={}, 消息数量={}, currentTurnIndex={}",
+                    memoryId, wrapper.getMessages().size(), wrapper.getCurrentTurnIndex());
+        } catch (Exception e) {
+            log.error("❌ [CACHE] 直接保存包装器失败: memoryId={}", memoryId, e);
         }
     }
 
@@ -153,6 +262,23 @@ public class ChatMessageCacheService {
     }
 
     /**
+     * 获取当前的turn_index
+     */
+    public Integer getCurrentTurnIndex(String memoryId) {
+        String cacheKey = getCacheKey(memoryId);
+        try {
+            ChatMessageWrapper wrapper = (ChatMessageWrapper) redisTemplate.opsForValue().get(cacheKey);
+            if (wrapper != null) {
+                return wrapper.getCurrentTurnIndex();
+            }
+            return 0; // 如果没有缓存，返回0
+        } catch (Exception e) {
+            log.error("❌ [CACHE] 获取当前turn_index失败: memoryId={}", memoryId, e);
+            return 0;
+        }
+    }
+
+    /**
      * 清空所有聊天缓存（谨慎使用）
      */
     public void clearAllChatCache() {
@@ -165,4 +291,5 @@ public class ChatMessageCacheService {
             log.error("❌ [CACHE] 清空所有聊天缓存失败", e);
         }
     }
+
 }

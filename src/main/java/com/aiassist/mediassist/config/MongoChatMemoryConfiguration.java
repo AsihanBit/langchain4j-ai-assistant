@@ -20,17 +20,17 @@ public class MongoChatMemoryConfiguration {
 
     @Autowired
     private MongoChatMemoryStore mongoChatMemoryStore;
-    
+
     /**
-     * 最大消息窗口大小，可通过配置文件调整
+     * LangChain框架控制的窗口大小，设置为较大值使其失效
      */
-    @Value("${chat.memory.max-messages:50}")
-    private int maxMessages;
-    
+    @Value("${chat.langchain.max-size:10}")
+    private int langchainMaxSize;
+
     /**
      * 是否启用MongoDB持久化，可通过配置文件控制
      */
-    @Value("${chat.memory.enable-mongodb:true}")
+    @Value("${chat.mongodb.enable:true}")
     private boolean enableMongoDbStorage;
 
     /**
@@ -54,7 +54,7 @@ public class MongoChatMemoryConfiguration {
      */
     @Bean("chatMemoryProviderOpenAi")
     public ChatMemoryProvider chatMemoryProviderOpenAi() {
-        log.info("初始化统一ChatMemory配置 - MongoDB存储: {}, 最大消息数: {}", enableMongoDbStorage, maxMessages);
+        log.info("初始化统一ChatMemory配置 - MongoDB存储: {}, LangChain框架窗口: {}", enableMongoDbStorage, langchainMaxSize);
         
         if (enableMongoDbStorage) {
             // 使用MongoDB持久化存储 + 消息窗口限制
@@ -62,14 +62,14 @@ public class MongoChatMemoryConfiguration {
                 log.debug("创建MongoDB持久化ChatMemory: memoryId={}", memoryId);
                 return MessageWindowChatMemory.builder()
                         .id(memoryId)
-                        .maxMessages(maxMessages)
+                        .maxMessages(langchainMaxSize)
                         .chatMemoryStore(mongoChatMemoryStore)
                         .build();
             };
         } else {
             // 仅使用内存存储（适用于开发和测试）
             log.warn("使用内存存储ChatMemory（非持久化）");
-            return memoryId -> MessageWindowChatMemory.withMaxMessages(maxMessages);
+            return memoryId -> MessageWindowChatMemory.withMaxMessages(langchainMaxSize);
         }
     }
 }
