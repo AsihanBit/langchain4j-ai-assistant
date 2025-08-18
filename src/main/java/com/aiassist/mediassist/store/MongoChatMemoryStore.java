@@ -233,7 +233,7 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
         result.addAll(dbMessages);
 
         log.info("🔍 [BUILD] 构建完整消息列表: SystemMessage(1) + 数据库消息({}) = 总数({})",
-            dbMessages.size(), result.size());
+                dbMessages.size(), result.size());
         return result;
     }
 
@@ -264,8 +264,8 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
      */
     private List<ChatMessage> filterNonSystemMessages(List<ChatMessage> messages) {
         List<ChatMessage> filtered = messages.stream()
-            .filter(msg -> !(msg instanceof SystemMessage))
-            .collect(java.util.stream.Collectors.toList());
+                .filter(msg -> !(msg instanceof SystemMessage))
+                .collect(java.util.stream.Collectors.toList());
 
         log.info("💾 [FILTER] 过滤SystemMessage: 原始{}条 -> 过滤后{}条", messages.size(), filtered.size());
         return filtered;
@@ -277,8 +277,8 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
     private int getCurrentMaxTurnIndex(String memoryId) {
         try {
             Query query = new Query(Criteria.where("memoryId").is(memoryId))
-                .with(Sort.by(Sort.Direction.DESC, "turnIndex"))
-                .limit(1);
+                    .with(Sort.by(Sort.Direction.DESC, "turnIndex"))
+                    .limit(1);
 
             Message lastMessage = mongoTemplate.findOne(query, Message.class);
             int maxTurnIndex = lastMessage != null ? lastMessage.getTurnIndex() : 0;
@@ -289,7 +289,6 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
             return 0;
         }
     }
-
 
 
     /**
@@ -315,8 +314,8 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
         if (allCachedMessages != null && !allCachedMessages.isEmpty()) {
             // 过滤掉SystemMessage，只保留实际对话消息
             cachedMessages = allCachedMessages.stream()
-                .filter(msg -> !(msg instanceof SystemMessage))
-                .collect(Collectors.toList());
+                    .filter(msg -> !(msg instanceof SystemMessage))
+                    .collect(Collectors.toList());
         }
 
         log.info("💾 [SAVE] 当前传入消息数: {}, 缓存中消息数: {}", currentMessages.size(), cachedMessages.size());
@@ -340,11 +339,10 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
             if (mongoMessage != null) {
                 mongoTemplate.save(mongoMessage);
                 log.info("💾 [SAVE] 保存新消息: turn_index={}, type={}, content={}",
-                    turnIndex, getMessageType(message), getMessageContentForLog(message));
+                        turnIndex, getMessageType(message), getMessageContentForLog(message));
             }
         }
     }
-
 
 
     /**
@@ -420,29 +418,6 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
     }
 
     /**
-     * 创建新会话
-     */
-    public Conversation createConversation(String memoryId, String userIp) {
-        try {
-            Conversation conversation = Conversation.builder()
-                    .id(UUID.randomUUID().toString())
-                    .memoryId(memoryId)
-                    .userIp(userIp)
-                    .createdTime(LocalDateTime.now())
-                    .lastSendTime(LocalDateTime.now())
-                    .build();
-
-            mongoTemplate.save(conversation);
-            log.info("创建会话成功: memoryId={}", memoryId);
-            return conversation;
-
-        } catch (Exception e) {
-            log.error("创建会话失败: memoryId={}", memoryId, e);
-            throw new RuntimeException("创建会话失败", e);
-        }
-    }
-
-    /**
      * 应用窗口淘汰策略，更新Redis缓存（保持真实turnIndex）
      */
     private void updateRedisCacheWithWindowEviction(String memoryId, SystemMessage systemMessage) {
@@ -479,7 +454,7 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
 
             // 1. 添加SystemMessage（turnIndex=0）
             ChatMessageWrapper.SerializableMessage systemMsg =
-                ChatMessageWrapper.SerializableMessage.fromChatMessage(systemMessage, 0);
+                    ChatMessageWrapper.SerializableMessage.fromChatMessage(systemMessage, 0);
             wrapper.getMessages().add(systemMsg);
 
             // 2. 添加MongoDB消息，保持原有turnIndex
@@ -488,7 +463,7 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
                 ChatMessage chatMessage = convertIndividualMessageToChatMessage(mongoMsg);
                 if (chatMessage != null) {
                     ChatMessageWrapper.SerializableMessage serializableMsg =
-                        ChatMessageWrapper.SerializableMessage.fromChatMessage(chatMessage, mongoMsg.getTurnIndex());
+                            ChatMessageWrapper.SerializableMessage.fromChatMessage(chatMessage, mongoMsg.getTurnIndex());
                     wrapper.getMessages().add(serializableMsg);
                     maxTurnIndex = Math.max(maxTurnIndex, mongoMsg.getTurnIndex());
                 }
@@ -549,7 +524,6 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
     }
 
     // ==================== 私有辅助方法 ====================
-
 
 
     /**
@@ -697,7 +671,7 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
                 // 工具执行结果消息 - 需要单独保存，不能合并到completion中
                 dev.langchain4j.data.message.ToolExecutionResultMessage toolResult =
                         (dev.langchain4j.data.message.ToolExecutionResultMessage) message;
-                
+
                 // 先保存当前的回合（如果有的话）
                 if (currentPrompt != null && completionBuilder.length() > 0) {
                     String completion = completionBuilder.toString();
@@ -706,13 +680,13 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
                     mongoMessages.add(createMongoMessage(memoryId, turnIndex++, currentPrompt, completion, Message.MessageType.AI));
                     completionBuilder.setLength(0);
                 }
-                
+
                 // 创建工具调用记录
                 Message.ToolCall toolCall = new Message.ToolCall();
                 toolCall.setToolName(toolResult.toolName());
                 toolCall.setResult(toolResult.text());
                 toolCall.setTimestamp(LocalDateTime.now());
-                
+
                 // 创建包含工具调用的消息
                 Message toolMessage = Message.builder()
                         .id(UUID.randomUUID().toString())
@@ -723,7 +697,7 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
                         .sendTime(LocalDateTime.now())
                         .toolCalls(List.of(toolCall))
                         .build();
-                
+
                 mongoMessages.add(toolMessage);
                 log.info("💬 [MESSAGES] 保存工具执行结果: {} -> {}", toolResult.toolName(), toolResult.text().substring(0, Math.min(50, toolResult.text().length())));
             } else if (message instanceof SystemMessage) {
@@ -954,11 +928,11 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
 
                 if (id != null && name != null && args != null) {
                     dev.langchain4j.agent.tool.ToolExecutionRequest toolRequest =
-                        dev.langchain4j.agent.tool.ToolExecutionRequest.builder()
-                            .id(id)
-                            .name(name)
-                            .arguments(args)
-                            .build();
+                            dev.langchain4j.agent.tool.ToolExecutionRequest.builder()
+                                    .id(id)
+                                    .name(name)
+                                    .arguments(args)
+                                    .build();
                     return AiMessage.from(toolRequest);
                 }
             }

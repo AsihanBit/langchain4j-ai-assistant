@@ -17,7 +17,7 @@ import java.util.UUID;
 
 /**
  * 会话管理服务
- * 
+ * <p>
  * 提供会话的创建、查询、管理等功能
  */
 @Slf4j
@@ -26,7 +26,7 @@ public class ConversationService {
 
     @Autowired
     private MongoChatMemoryStore mongoChatMemoryStore;
-    
+
     @Autowired
     private MongoTemplate mongoTemplate;
 
@@ -36,11 +36,24 @@ public class ConversationService {
     public String createNewConversation(String userIp) {
         // 生成唯一的 memoryId (使用时间戳 + UUID)
         String memoryId = generateMemoryId();
-        
-        // 创建会话
-        Conversation conversation = mongoChatMemoryStore.createConversation(memoryId, userIp);
-        
-        log.info("创建新会话成功: memoryId={}, userIp={}", memoryId, userIp);
+        try {
+            // 创建会话
+            LocalDateTime now = LocalDateTime.now();
+            Conversation conversation = Conversation.builder()
+                    // todo 统一 主键id 生成逻辑
+                    .id(UUID.randomUUID().toString())
+                    .memoryId(memoryId)
+                    .userIp(userIp)
+                    .createdTime(now)
+                    .lastSendTime(now)
+                    .build();
+            mongoTemplate.save(conversation);
+
+            log.info("创建新会话成功: memoryId={}, userIp={}", memoryId, userIp);
+        } catch (Exception e) {
+            log.error("创建会话失败: memoryId={}", memoryId, e);
+            throw new RuntimeException("创建会话失败", e);
+        }
         return memoryId;
     }
 
@@ -48,9 +61,10 @@ public class ConversationService {
      * 获取用户的会话列表
      */
     public List<Conversation> getUserConversations(String userIp) {
+        // 构建查询条件
         Query query = Query.query(Criteria.where("user_ip").is(userIp))
-                .with(Sort.by(Sort.Direction.DESC, "last_send_time"));
-        
+                .with(Sort.by(Sort.Direction.DESC, "created_time")); // 按创建时间倒序
+        // 执行查询
         return mongoTemplate.find(query, Conversation.class);
     }
 
@@ -63,44 +77,12 @@ public class ConversationService {
     }
 
     /**
-     * 检查会话是否存在且有效
-     */
-    public boolean isValidConversation(String memoryId) {
-        if (memoryId == null || memoryId.trim().isEmpty()) {
-            return false;
-        }
-        
-        Query query = Query.query(Criteria.where("memory_id").is(memoryId));
-        return mongoTemplate.exists(query, Conversation.class);
-    }
-
-    /**
      * 删除会话
      */
     public void deleteConversation(String memoryId) {
         mongoChatMemoryStore.deleteMessages(memoryId);
         log.info("删除会话: memoryId={}", memoryId);
-    }
-
-    /**
-     * 获取会话统计信息
-     */
-    public ConversationStats getStats() {
-        try {
-            long totalConversations = mongoTemplate.count(new Query(), Conversation.class);
-            long todayConversations = mongoTemplate.count(
-                    Query.query(Criteria.where("created_time").gte(LocalDateTime.now().toLocalDate().atStartOfDay())), 
-                    Conversation.class);
-            
-            return ConversationStats.builder()
-                    .totalConversations(totalConversations)
-                    .todayConversations(todayConversations)
-                    .build();
-                    
-        } catch (Exception e) {
-            log.error("获取会话统计失败", e);
-            return ConversationStats.builder().build();
-        }
+        // todo messages 级联删除
     }
 
     // ==================== 私有辅助方法 ====================
@@ -116,14 +98,35 @@ public class ConversationService {
     }
 
     /**
-     * 会话统计信息
+     * 检查会话是否存在且有效
      */
-    @lombok.Data
-    @lombok.Builder
-    @lombok.NoArgsConstructor
-    @lombok.AllArgsConstructor
-    public static class ConversationStats {
-        private long totalConversations;
-        private long todayConversations;
+    public boolean isValidConversation(String memoryId) {
+        if (memoryId == null || memoryId.trim().isEmpty()) {
+            return false;
+        }
+        Query query = Query.query(Criteria.where("memory_id").is(memoryId));
+        return mongoTemplate.exists(query, Conversation.class);
+    }
+
+    /**
+     * 处理和验证 memoryId
+     * 如果客户端提供的 memoryId 无效或为空，则自动创建新会话
+     */
+    public String processMemoryId(String clientMemoryId, String userIp) {
+        // 如果客户端没有提供 memoryId 或者无效，创建新会话
+        if (clientMemoryId == null || clientMemoryId.trim().isEmpty() ||
+                !isValidConversation(clientMemoryId)) {
+
+            String newMemoryId = createNewConversation(userIp);
+            log.info("客户端memoryId无效 '{}', 自动创建新会话: {}", clientMemoryId, newMemoryId);
+            return newMemoryId;
+        }
+
+        return clientMemoryId.trim();
     }
 }
+
+//            long totalConversations = mongoTemplate.count(new Query(), Conversation.class);
+//            long todayConversations = mongoTemplate.count(
+//                    Query.query(Criteria.where("created_time").gte(LocalDateTime.now().toLocalDate().atStartOfDay())),
+//                    Conversation.class);

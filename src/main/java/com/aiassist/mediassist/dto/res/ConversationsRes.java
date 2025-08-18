@@ -16,7 +16,15 @@ public class ConversationsRes {
     private List<Conversation> conversations;
     private Integer totalCount;
 
+    // todo 待添加
+
 //    private int currentPage;
 //    private int pageSize;
 //    private int totalPages;
+
+//        private int messageCount;
+//        private int totalTokensInput;
+//        private int totalTokensOutput;
+//        private int totalTokens;
+
 }

@@ -144,6 +144,19 @@ embedding:
   batch-size: 10  # 批量处理大小
   timeout: 30000   # 请求超时时间(ms)
 
+# 网络连接
+resilience4j:
+  retry:
+    instances:
+      remote-service:
+        maxAttempts: 3            # 最大重试次数
+        waitDuration: 2s          # 重试间隔
+        retryExceptions:          # 捕获异常类型
+          - java.net.SocketException
+          - java.io.IOException
+          - java.net.UnknownHostException    # 捕获 DNS 解析失败异常
+#        ignoreExceptions:         # 忽略特定的异常
+#          - org.springframework.web.client.HttpClientErrorException
 # 聊天记忆配置
 chat:
   mongodb:
