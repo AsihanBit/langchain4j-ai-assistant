@@ -94,7 +94,9 @@ public class ChatController {
 
             log.info("开始带记忆流式对话 - IP: {}, memoryId: {}", userIp, memoryId);
 
-            Flux<String> stringFlux = openAiAgent.chatStream(memoryId, req.getMessage())
+            return Flux.deferContextual(ctxView ->
+                            openAiAgent.chatStream(memoryId, req.getMessage())
+                    )
                     .doOnNext(chunk -> {
                         log.debug("发送片段: {}",
                                 chunk.length() > 50 ? chunk.substring(0, 50) + "..." : chunk);
@@ -104,14 +106,18 @@ public class ChatController {
                     })
                     .doOnError(error -> log.error("带记忆流式对话出错", error))
                     .doFinally(signalType -> {
-                        log.debug("清理用户上下文，信号类型: {}", signalType);
+                        // 这里仍然清理 ThreadLocal，没有问题（Micrometer 在切线程时会恢复/重置）
+                        UserContext.clear();
                     });
-//            ChatStreamRes res = ChatStreamRes.builder()
-//                    .memoryId(memoryId)
-//                    .contentStream(stringFlux)
-//                    .build();
-//            return Result.success(res);
-            return stringFlux;
+//            Flux<String> stringFlux = openAiAgent.chatStream(memoryId, req.getMessage())
+//                    .contextWrite(ctx -> ctx
+//                                    .put(UserIpThreadLocalAccessor.KEY, userIp)
+//                            // .put(MemoryIdThreadLocalAccessor.KEY, memoryId)
+//                    )
+//                    .contextWrite(context -> context
+//                            .put("USER_IP", userIp)
+//                            .put("MEMORY_ID", memoryId));
+//            return stringFlux;
 //            return ResponseEntity.ok()
 //                    .contentType(MediaType.TEXT_PLAIN)
 //                    .header("X-Memory-Id", memoryId)  // 通过header传递memoryId
@@ -121,7 +127,7 @@ public class ChatController {
             log.error("带记忆对话失败", e);
             throw new RuntimeException("客户端对话失败");
         } finally {
-            UserContext.clear();
+//            UserContext.clear(); 待测试
         }
     }
 }

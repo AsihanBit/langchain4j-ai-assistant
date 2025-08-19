@@ -55,12 +55,24 @@ public class TextTools {
 
     @Tool(name = "get_user_ip_address", value = "Obtain the current user's IP address. Returns the IP address string. Use this ONLY when specifically asked about IP address.")
     public String getClientIp() {
-        String clientIp = UserContext.getCurrentUserIp();
-        log.info("AI使用了IP工具类 get_user_ip_address : {}", clientIp);
-        if (clientIp == null || clientIp.trim().isEmpty()) {
-            return "无法获取用户IP地址，请确保通过HTTP接口访问";
-        }
-        return "用户IP地址: " + clientIp;
+        log.info("🔧 [TOOL] get_user_ip_address 开始执行");
+        String ip = UserContext.getCurrentUserIp();
+        log.info("🔧 [TOOL] 从 UserContext Context 获取IP: {}", ip);
+        if (ip != null) return "用户IP地址: " + ip; // 也可以直接返回 ip
+
+        else return "无法获取用户IP地址，上下文信息丢失";
+
+        // 从响应式上下文中获取 IP
+//        log.info("🔧 [TOOL] UserContext调试信息:\n{}", UserContext.getDebugInfo());
+//        Optional<String> userIpOptional = ReactiveContextHolder.getContext().map(context -> context.getOrDefault("USER_IP", null));
+//        if (userIpOptional.isPresent() && userIpOptional.get() != null) {
+//            String clientIp = userIpOptional.get();
+//            log.info("🔧 [TOOL] 成功从 Reactor Context 获取IP: {}", clientIp);
+//            return "用户IP地址: " + clientIp;
+//        } else {
+//            log.warn("🔧 [TOOL] 无法从 Reactor Context 获取IP地址！");
+//            return "无法获取用户IP地址，上下文信息丢失";
+//        }
     }
 
     @Tool(name = "remember_user_name", value = "Remember and bind user's name with their IP address. Returns confirmation message. Call this ONCE when user provides their name, then acknowledge the successful storage.")
