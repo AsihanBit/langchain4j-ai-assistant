@@ -37,7 +37,7 @@ spring:
         allow: 127.0.0.1
         login-username: admin
         login-password: 123456
- 
+
   # MongoDB配置
   data:
     redis:
@@ -45,47 +45,47 @@ spring:
       port: 6379
       password: ${dev.redis.password}
       database: 1
-      # Redis连接池配置
-      lettuce:
+      # Jedis 连接池配置
+      jedis:
         pool:
-          max-active: 8
-          max-idle: 8
-          min-idle: 1
-          max-wait: -1ms
+          max-active: 8    # 连接池最大连接数
+          max-wait: -1ms   # 连接池最大阻塞等待时间
+          max-idle: 8      # 连接池中的最大空闲连接
+          min-idle: 0      # 连接池中的最小空闲连接
+      # Redis连接池配置
+#      lettuce:
+#        pool:
+#          max-active: 8
+#          max-idle: 8
+#          min-idle: 1
+#          max-wait: 2s
     mongodb:
+      uri: mongodb://${dev.mongo.username}:${dev.mongo.password}@${dev.mongo.host}:${dev.mongo.port}/${dev.mongo.database}?authSource=${dev.mongo.auth-db:admin}&maxIdleTimeMS=60000&maxPoolSize=50&minPoolSize=10
       # 服务器地址和端口
-      host: ${dev.mongo.host}
-      port: ${dev.mongo.port}
-      # 数据库名称
-      database: ${dev.mongo.database}
-      # 认证信息（如果需要）
-      username: ${dev.mongo.username:}
-      password: ${dev.mongo.password:}
-      # 认证数据库（通常是admin）
-      authentication-database: ${dev.mongo.auth-db:admin}
+#      host: ${dev.mongo.host}
+#      port: ${dev.mongo.port}
+#      # 数据库名称
+#      database: ${dev.mongo.database}
+#      # 认证信息（如果需要）
+#      username: ${dev.mongo.username:}
+#      password: ${dev.mongo.password:}
+#      # 认证数据库（通常是admin）
+#      authentication-database: ${dev.mongo.auth-db:admin}
+#      timeout: 5000 # 超时
       # 连接选项
-      options:
-        # 连接超时时间（毫秒）
-        connect-timeout: 10000
-        # Socket超时时间（毫秒）
-        socket-timeout: 30000
-        # 服务器选择超时时间（毫秒）
-        server-selection-timeout: 30000
-        # 最大等待时间（毫秒）
-        max-wait-time: 60000
-        # 连接池最大连接数
-        max-connection-pool-size: 100
-        # 连接池最小连接数
-        min-connection-pool-size: 5
-        # 连接空闲时间（毫秒）
-        max-connection-idle-time: 60000
-        # 连接生存时间（毫秒）
-        max-connection-life-time: 300000
-        # 启用SSL（如果服务器支持）
-        ssl-enabled: false
-        # 是否验证SSL证书
-        ssl-invalid-host-name-allowed: true
-
+#      options:
+#        # 连接池
+#        min-connection-pool-size: 10        # 最小连接数 保证连接池中始终有一定数量的连接   10
+#        max-connection-pool-size: 100       # 最大连接数  100
+#        # 时间 ms
+#        max-connection-idle-time: 60000     # 连接空闲时间  60000
+#        max-connection-life-time: 300000    # 连接生存时间   300000
+#        connect-timeout: 30000              # 连接超时时间
+#        socket-timeout: 20000               # Socket超时时间    （等待MongoDB响应结果） 20000
+#        server-selection-timeout: 10000     # 服务器选择超时时间   10000
+#        max-wait-time: 6000                 # 最大等待时间       （等待连接可用的时间）
+#        ssl-enabled: false                  # 启用SSL（如果服务器支持）
+#        ssl-invalid-host-name-allowed: true # 是否验证SSL证书
 
 langchain4j:
   open-ai:
@@ -93,17 +93,17 @@ langchain4j:
       base-url: ${dev.openai.base-url}
       api-key: ${dev.openai.api-key}
       model-name: 'gpt-4o-mini'
-#      model-name: 'gpt-4o-2024-11-20'
+      #      model-name: 'gpt-4o-2024-11-20'
       temperature: 0.2
       log-requests: true
       log-responses: true
       # 网络超时配置（解决Connection reset问题）
-      timeout: 60s           # 总超时时间60秒
-      connect-timeout: 30s   # 连接超时30秒  
-      read-timeout: 45s      # 读取超时45秒
-      write-timeout: 30s     # 写入超时30秒
+      timeout: 60s           # 总超时时间 60秒
+      connect-timeout: 30s   # 连接超时 30秒
+      read-timeout: 45s      # 读取超时 45秒
+      write-timeout: 30s     # 写入超时 30秒
       # 重试配置
-      max-retries: 3         # 最大重试3次
+      max-retries: 3         # 最大重试 3次
       # 调用频率限制
       max-requests-per-minute: 30
     streaming-chat-model:
@@ -115,7 +115,7 @@ langchain4j:
       log-responses: true
       # 流式模型的超时配置
       timeout: 120s          # 流式响应需要更长时间
-      connect-timeout: 30s   
+      connect-timeout: 30s
       read-timeout: 90s      # 流式读取超时90秒
       write-timeout: 30s
       max-retries: 3
@@ -151,7 +151,7 @@ resilience4j:
       remote-service:
         maxAttempts: 3            # 最大重试次数
         waitDuration: 2s          # 重试间隔
-        retryExceptions:          # 捕获异常类型
+        retryExceptions: # 捕获异常类型
           - java.net.SocketException
           - java.io.IOException
           - java.net.UnknownHostException    # 捕获 DNS 解析失败异常
