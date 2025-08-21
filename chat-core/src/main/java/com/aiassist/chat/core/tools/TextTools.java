@@ -1,0 +1,358 @@
+package com.aiassist.chat.core.tools;
+
+import com.aiassist.ai.core.entity.ChunkDocs;
+import com.aiassist.ai.core.utils.WeaviateUtils;
+import com.aiassist.chat.core.context.UserContext;
+import com.aiassist.chat.core.entity.User;
+import com.aiassist.chat.core.service.UserService;
+import dev.langchain4j.agent.tool.Tool;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+/**
+ * LangChain4j 工具集（供 Agent 调用）
+ * <p>
+ * 包含：
+ * - 用户管理相关工具（记名、识别、统计）
+ * - 知识库检索工具（语义检索、关键词检索、按文档获取全文）
+ * - 其他示例工具（如加密）
+ * <p>
+ * 使用说明：
+ * - 标注 @Tool 的方法会被 LangChain4j 作为可调用的“函数/工具”暴露给大模型。
+ * - OpenAiAgent 采用 AiServiceWiringMode.AUTOMATIC，会自动发现本 @Component 中的工具。
+ */
+@Slf4j
+@Component
+public class TextTools {
+
+    @Autowired
+    private UserService userService;
+
+    @Autowired
+    private WeaviateUtils weaviateUtils;
+
+    @Tool(name = "encrypt_password", value = "Encrypt password using encryption algorithm")
+    public String crypt(int password) {
+        int num = 0;
+        while (password > 0) {
+            num = num * 10 + password % 10;
+            password = password / 10;
+        }
+        String str = "Crypt超级加密: ";
+        return str + num;
+    }
+
+    @Tool(name = "get_user_ip_address", value = "Obtain the current user's IP address. Returns the IP address string. Use this ONLY when specifically asked about IP address.")
+    public String getClientIp() {
+        log.info("🔧 [TOOL] get_user_ip_address 开始执行");
+        String ip = UserContext.getCurrentUserIp();
+        log.info("🔧 [TOOL] 从 UserContext Context 获取IP: {}", ip);
+        if (ip != null) return "用户IP地址: " + ip; // 也可以直接返回 ip
+
+        else return "无法获取用户IP地址，上下文信息丢失";
+
+        // 从响应式上下文中获取 IP
+//        log.info("🔧 [TOOL] UserContext调试信息:\n{}", UserContext.getDebugInfo());
+//        Optional<String> userIpOptional = ReactiveContextHolder.getContext().map(context -> context.getOrDefault("USER_IP", null));
+//        if (userIpOptional.isPresent() && userIpOptional.get() != null) {
+//            String clientIp = userIpOptional.get();
+//            log.info("🔧 [TOOL] 成功从 Reactor Context 获取IP: {}", clientIp);
+//            return "用户IP地址: " + clientIp;
+//        } else {
+//            log.warn("🔧 [TOOL] 无法从 Reactor Context 获取IP地址！");
+//            return "无法获取用户IP地址，上下文信息丢失";
+//        }
+    }
+
+    @Tool(name = "remember_user_name", value = "Remember and bind user's name with their IP address. Returns confirmation message. Call this ONCE when user provides their name, then acknowledge the successful storage.")
+    public String rememberUserName(String userName) {
+        String currentIp = UserContext.getCurrentUserIp();
+        if (currentIp == null || currentIp.isEmpty()) {
+            return "无法获取用户IP，无法绑定用户名";
+        }
+
+        if (userName == null || userName.trim().isEmpty()) {
+            return "用户名不能为空";
+        }
+
+        try {
+            User user = userService.recordUserVisit(userName.trim(), currentIp);
+            User user1 = userService.recordUserVisit(userName.trim(), currentIp);
+            if (user.getVisitCount() == 1) {
+                return String.format("好的，我已经记住你是 %s！下次你访问时我就能认出你了。", userName.trim());
+            } else {
+                return String.format("我已经认识你了，%s！这是你第 %d 次访问，很高兴再次见到你。",
+                        userName.trim(), user.getVisitCount());
+            }
+        } catch (Exception e) {
+            log.error("保存用户信息时出错", e);
+            return "保存用户信息时出错：" + e.getMessage();
+        }
+    }
+
+    @Tool(name = "check_user_identity", value = "Check if current user is already known by their IP address. Returns complete user information including name and visit history. Call this ONCE when user asks about their identity, then reply directly with the returned information.")
+    public String checkUserIdentity() {
+        log.info("🔧 [TOOL] check_user_identity 开始执行");
+
+        try {
+            String currentIp = UserContext.getCurrentUserIp();
+            log.info("🔧 [TOOL] 获取到 IP: {}", currentIp);
+
+            if (currentIp == null || currentIp.isEmpty()) {
+                String result = "无法获取用户IP地址";
+                log.info("🔧 [TOOL] 返回结果: {}", result);
+                return result;
+            }
+
+            User user = userService.getUserByIpAddress(currentIp);
+            log.info("🔧 [TOOL] 查询用户结果: {}", user != null ? user.getUserName() : "未找到");
+
+            if (user != null) {
+                // 更新访问信息
+                userService.updateUserVisit(user.getId());
+                String result = String.format("我认识你！你是 %s，这是你第 %d 次访问，上次见面是 %s。欢迎回来！",
+                        user.getUserName(),
+                        user.getVisitCount() + 1,  // +1 因为刚刚更新了访问次数
+                        user.getLastSeen().toString());
+                log.info("🔧 [TOOL] 返回结果: {}", result);
+                log.info("🔧 [TOOL] check_user_identity 执行完成，准备返回结果");
+                return result;
+            } else {
+                String result = "这是我第一次见到来自 " + currentIp + " 的用户，请告诉我你的名字，我会记住你的。";
+                log.info("🔧 [TOOL] 返回结果: {}", result);
+                return result;
+            }
+        } catch (Exception e) {
+            log.error("🚨 [TOOL] check_user_identity 执行异常", e);
+            String result = "检查用户身份时发生错误：" + e.getMessage();
+            log.info("🔧 [TOOL] 异常返回结果: {}", result);
+            return result;
+        }
+    }
+
+    @Tool(name = "get_all_known_users", value = "Get a list of all users I have met before")
+    public String getAllKnownUsers() {
+        var allUsers = userService.getAllUsers();
+        if (allUsers.isEmpty()) {
+            return "我还没有认识任何用户。";
+        }
+
+        StringBuilder sb = new StringBuilder("我认识的用户有：\n");
+        for (User user : allUsers) {
+            sb.append(String.format("- %s (IP: %s, 访问次数: %d, 最后访问: %s)\n",
+                    user.getUserName(),
+                    user.getIpAddress(),
+                    user.getVisitCount(),
+                    user.getLastSeen().toString()));
+        }
+
+        return sb.toString();
+    }
+
+    @Tool(name = "get_user_visit_ranking", value = "Get user ranking by visit count")
+    public String getUserVisitRanking() {
+        var users = userService.getUsersByVisitCount();
+        if (users.isEmpty()) {
+            return "暂无用户访问记录。";
+        }
+
+        StringBuilder sb = new StringBuilder("用户访问排行榜：\n");
+        for (int i = 0; i < users.size() && i < 10; i++) {
+            User user = users.get(i);
+            sb.append(String.format("%d. %s - %d次访问\n",
+                    i + 1, user.getUserName(), user.getVisitCount()));
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * 语义检索知识库，并返回若干条“可直接注入模型的上下文文本”。
+     * <p>
+     * 调参建议：
+     * - 召回阶段（searchSimilarDocuments）：limit 建议 20~50，certainty 建议 0.15~0.35
+     * - 注入阶段：一般仅取 TopK（如 3~5）完整文本，避免超长
+     */
+    @Tool(name = "search_knowledge_base", value = "Search for relevant information from the knowledge base using semantic similarity. Returns matching documents. Call this ONCE per query, then provide answer based on results.")
+    public String searchKnowledgeBase(String query) {
+        if (query == null || query.trim().isEmpty()) {
+            return "查询内容不能为空";
+        }
+
+        try {
+            log.info("AI使用知识库搜索工具，查询: {}", query);
+
+            // 搜索相似文档：提高召回量，降低阈值以获得更多相关结果
+            // 相似度阈值 0.2，最多返回 20 个结果（召回阶段）
+            List<ChunkDocs> results = weaviateUtils.searchSimilarDocuments(query.trim(), 20, 0.2f);
+
+            if (results.isEmpty()) {
+                return "很抱歉，在知识库中没有找到与\"" + query + "\"相关的信息。";
+            }
+
+            StringBuilder response = new StringBuilder();
+            response.append("根据你的查询\"").append(query).append("\"，我在知识库中找到了以下相关信息：\n\n");
+
+            // 仅取前 5 个结果注入（构造给模型的上下文），每条包含完整文本
+            int maxResults = Math.min(results.size(), 5);
+            for (int i = 0; i < maxResults; i++) {
+                ChunkDocs doc = results.get(i);
+                response.append("📄 **").append(i + 1).append(". ").append(doc.getShortDescription()).append("**\n");
+                response.append("📍 相似度: ").append(String.format("%.4f", doc.getSimilarity() * 100)).append("%\n");
+                response.append("🔑 关键词: ").append(doc.getKeywordsString()).append("\n");
+                response.append("📝 内容摘要: ").append(doc.getTextSummary()).append("\n");
+                response.append("📂 来源: ").append(doc.getSourcePath()).append("\n\n");
+                response.append("📂 标题: ").append(doc.getTitle()).append("\n\n");
+                response.append("📂 章节: ").append(doc.getSectionTitle()).append("\n\n");
+
+
+                // 关键改进：返回完整文本内容而不是摘要
+                String fullText = doc.getText() != null ? doc.getText().strip() : "";
+                if (!fullText.isEmpty()) {
+                    response.append(fullText).append("\n\n");
+                } else {
+                    // 如果没有完整文本，才使用摘要作为备选
+                    response.append("📝 内容摘要: ").append(doc.getTextSummary()).append("\n\n");
+                }
+            }
+
+            return response.toString();
+
+        } catch (Exception e) {
+            log.error("知识库搜索失败", e);
+            return "知识库搜索时出现错误: " + e.getMessage();
+        }
+    }
+
+    @Tool(name = "get_document_content", value = "Get the full content of a specific document by doc_id")
+    public String getDocumentContent(String docId) {
+        if (docId == null || docId.trim().isEmpty()) {
+            return "文档ID不能为空";
+        }
+
+        try {
+            log.info("AI使用文档获取工具，文档ID: {}", docId);
+
+            List<ChunkDocs> documents = weaviateUtils.getDocumentById(docId.trim());
+
+            if (documents.isEmpty()) {
+                return "未找到ID为\"" + docId + "\"的文档。";
+            }
+
+            // 按chunk_index排序
+            documents.sort((a, b) -> {
+                Integer indexA = a.getChunkIndex() != null ? a.getChunkIndex() : 0;
+                Integer indexB = b.getChunkIndex() != null ? b.getChunkIndex() : 0;
+                return indexA.compareTo(indexB);
+            });
+
+            StringBuilder content = new StringBuilder();
+            content.append("📄 **文档内容**\n");
+            content.append("🆔 文档ID: ").append(docId).append("\n");
+            content.append("📝 标题: ").append(documents.get(0).getTitle()).append("\n");
+            content.append("📂 来源: ").append(documents.get(0).getSourcePath()).append("\n");
+            content.append("🔑 关键词: ").append(documents.get(0).getKeywordsString()).append("\n\n");
+
+            content.append("📖 **完整内容:**\n");
+            for (ChunkDocs doc : documents) {
+                if (doc.getSectionTitle() != null && !doc.getSectionTitle().isEmpty()) {
+                    content.append("\n## ").append(doc.getSectionTitle()).append("\n");
+                }
+                content.append(doc.getText()).append("\n");
+            }
+
+            return content.toString();
+
+        } catch (Exception e) {
+            log.error("获取文档内容失败", e);
+            return "获取文档内容时出现错误: " + e.getMessage();
+        }
+    }
+
+    @Tool(name = "search_by_keywords", value = "Search documents by specific keywords")
+    public String searchByKeywords(String keywords) {
+        if (keywords == null || keywords.trim().isEmpty()) {
+            return "关键词不能为空";
+        }
+
+        try {
+            log.info("AI使用关键词搜索工具，关键词: {}", keywords);
+
+            // 分割关键词
+            List<String> keywordList = List.of(keywords.trim().split("[,，\\s]+"))
+                    .stream()
+                    .filter(kw -> !kw.trim().isEmpty())
+                    .map(String::trim)
+                    .collect(Collectors.toList());
+
+            if (keywordList.isEmpty()) {
+                return "请提供有效的关键词";
+            }
+
+            List<ChunkDocs> results = weaviateUtils.searchByKeywords(keywordList, 10);
+
+            if (results.isEmpty()) {
+                return "没有找到包含关键词\"" + keywords + "\"的文档。";
+            }
+
+            StringBuilder response = new StringBuilder();
+            response.append("🔍 根据关键词\"").append(keywords).append("\"找到了 ").append(results.size()).append(" 个相关文档：\n\n");
+
+            for (int i = 0; i < results.size(); i++) {
+                ChunkDocs doc = results.get(i);
+                response.append("📄 ").append(i + 1).append(". ").append(doc.getShortDescription()).append("\n");
+                response.append("🆔 文档ID: ").append(doc.getDocId()).append("\n");
+                response.append("🔑 匹配关键词: ").append(doc.getKeywordsString()).append("\n");
+                response.append("📝 内容预览: ").append(doc.getTextSummary()).append("\n\n");
+            }
+
+            return response.toString();
+
+        } catch (Exception e) {
+            log.error("关键词搜索失败", e);
+            return "关键词搜索时出现错误: " + e.getMessage();
+        }
+    }
+
+    @Tool(name = "get_knowledge_base_stats", value = "Get statistics about the knowledge base")
+    public String getKnowledgeBaseStats() {
+        try {
+            log.info("AI使用知识库统计工具");
+
+            var stats = weaviateUtils.getDocumentStats();
+            boolean connectionOk = weaviateUtils.testConnection();
+
+            StringBuilder response = new StringBuilder();
+            response.append("📊 **知识库状态报告**\n\n");
+            response.append("🔗 连接状态: ").append(connectionOk ? "✅ 正常" : "❌ 连接失败").append("\n");
+            response.append("📚 文档总数: ").append(stats.get("total")).append(" 个文档块\n");
+
+            if (stats.containsKey("error")) {
+                response.append("⚠️ 错误信息: ").append(stats.get("error")).append("\n");
+            }
+
+            response.append("\n💡 可以使用以下功能:\n");
+            response.append("- 🔍 语义搜索: search_knowledge_base\n");
+            response.append("- 🔑 关键词搜索: search_by_keywords\n");
+            response.append("- 📄 获取完整文档: get_document_content\n");
+
+            return response.toString();
+
+        } catch (Exception e) {
+            log.error("获取知识库统计失败", e);
+            return "获取知识库统计时出现错误: " + e.getMessage();
+        }
+    }
+
+    @Tool(name = "test_simple_tool", value = "A simple test tool that always returns a fixed message. Use this to test tool execution.")
+    public String testSimpleTool() {
+        log.info("🧪 [TEST_TOOL] 简单测试工具被调用");
+        String result = "测试工具执行成功！这是一个固定的返回消息。";
+        log.info("🧪 [TEST_TOOL] 返回结果: {}", result);
+        return result;
+    }
+}

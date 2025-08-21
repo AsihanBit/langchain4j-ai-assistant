@@ -1,0 +1,161 @@
+spring:
+  application:
+    name: AiService
+  profiles:
+    active: dev
+
+  # MySQL数据库配置
+  datasource:
+    url: ${data.db.url}
+    username: ${data.db.username}
+    password: ${data.db.password}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    type: com.alibaba.druid.pool.DruidDataSource
+
+    # Druid 连接池配置
+    druid:
+      initial-size: 5
+      min-idle: 10
+      max-active: 20
+      max-wait: 60000
+      time-between-eviction-runs-millis: 60000
+      min-evictable-idle-time-millis: 300000
+      validation-query: SELECT 1 FROM DUAL
+      test-while-idle: true
+      test-on-borrow: false
+      test-on-return: false
+      pool-prepared-statements: true
+      max-pool-prepared-statement-per-connection-size: 20
+      filters: stat,wall,slf4j
+      web-stat-filter:
+        enabled: true
+        url-pattern: "/*"
+        exclusions: "*.js,*.gif,*.jpg,*.bmp,*.png,*.css,*.ico,/druid/*"
+      stat-view-servlet:
+        enabled: true
+        url-pattern: "/druid/*"
+        allow: 127.0.0.1
+        login-username: admin
+        login-password: 123456
+
+  # 数据库
+  data:
+    # Redis
+    redis:
+      host: ${chat.redis.host}
+      port: ${chat.redis.port}
+      password: ${chat.redis.password}
+      database: ${chat.redis.database}
+      # Jedis 连接池配置
+      jedis:
+        pool:
+          max-active: 8    # 连接池最大连接数
+          max-wait: -1ms   # 连接池最大阻塞等待时间
+          max-idle: 8      # 连接池中的最大空闲连接
+          min-idle: 1      # 连接池中的最小空闲连接
+      # Redis连接池配置
+    #      lettuce:
+    #        pool:
+    #          max-active: 8
+    #          max-idle: 8
+    #          min-idle: 1
+    #          max-wait: 2s
+    # MongoDB
+    mongodb:
+      uri: mongodb://${chat.mongo.username}:${chat.mongo.password}@${chat.mongo.host}:${chat.mongo.port}/${chat.mongo.database}?authSource=${chat.mongo.auth-db}&maxIdleTimeMS=60000&maxPoolSize=50&minPoolSize=10
+
+langchain4j:
+  open-ai:
+    chat-model:
+      base-url: ${ai.openai.base-url}
+      api-key: ${ai.openai.api-key}
+      model-name: 'gpt-4o-mini'
+      # model-name: 'gpt-4o-2024-11-20'
+      temperature: 0.2
+      log-requests: true
+      log-responses: true
+      # 网络超时配置（解决Connection reset问题）
+      timeout: 60s           # 总超时时间 60秒
+      connect-timeout: 30s   # 连接超时 30秒
+      read-timeout: 45s      # 读取超时 45秒
+      write-timeout: 30s     # 写入超时 30秒
+      # 重试配置
+      max-retries: 3         # 最大重试 3次
+      # 调用频率限制
+      max-requests-per-minute: 30
+    streaming-chat-model:
+      base-url: ${ai.openai.base-url}
+      api-key: ${ai.openai.api-key}
+      model-name: 'gpt-4o-mini'
+      temperature: 0.2
+      log-requests: true
+      log-responses: true
+      # 流式模型的超时配置
+      timeout: 120s          # 流式响应需要更长时间
+      connect-timeout: 30s
+      read-timeout: 90s      # 流式读取超时90秒
+      write-timeout: 30s
+      max-retries: 3
+
+# 嵌入服务配置
+embedding:
+  base-url: ${ai.embedding.base-url}
+  api-key: ${ai.embedding.api-key}
+  model-name: text-embedding-3-small
+  batch-size: 10  # 批量处理大小
+  timeout: 30000   # 请求超时时间(ms)
+
+# Weaviate向量数据库配置
+weaviate:
+  host: ${ai.weaviate.host}
+  port: ${ai.weaviate.port}
+  scheme: ${ai.weaviate.scheme}
+  collection-name: ${ai.weaviate.collection}
+  timeout: ${ai.weaviate.timeout}  # 连接超时时间(ms)
+
+# MyBatis配置
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.aiassist.chat.core.entity
+  configuration:
+    map-underscore-to-camel-case: true  # 下划线转驼峰
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl  # 显示SQL日志
+
+# 网络连接
+resilience4j:
+  retry:
+    instances:
+      remote-service:
+        maxAttempts: 3            # 最大重试次数
+        waitDuration: 2s          # 重试间隔
+        retryExceptions: # 捕获异常类型
+          - java.net.SocketException
+          - java.io.IOException
+          - java.net.UnknownHostException    # 捕获 DNS 解析失败异常
+#        ignoreExceptions:         # 忽略特定的异常
+#          - org.springframework.web.client.HttpClientErrorException
+
+# 聊天记忆配置
+chat:
+  prompt:
+    path: ${chat.prompt.path}
+  mongodb:
+    # 是否启用MongoDB持久化存储 - 重新启用用于诊断
+    enable: true
+  langchain:
+    # 框架自动执行的窗口大小，设置为较大值，使其无效，完全由memory.max-size控制。
+    max-size: 10
+  memory:
+    # 最大记忆消息窗口大小，消息淘汰的基准
+    max-size: 6
+  cache:
+    expire-hours: 2        # 缓存过期时间（小时）
+    # 缓存中的消息数量，比 记忆消息窗口 多记录一个系统提示词，所以大1
+    max-size: 7
+
+logging:
+  level:
+    com:
+      aiassist:
+        mediassist: INFO
+#          tools: INFO

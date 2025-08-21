@@ -36,7 +36,10 @@ build/
 *.log
 
 # Local runtime prompts (external override)
-/prompts/system-prompt.txt
+/prompts
+/systemConfig
+/docs
+/testpy
 
 # Local dev config (contains secrets)
 src/main/resources/application-dev.yml

@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aiassist.chat.core.mapper.UserMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="UserResultMap" type="com.aiassist.chat.core.entity.User">
+        <id property="id" column="id"/>
+        <result property="userName" column="user_name"/>
+        <result property="ipAddress" column="ip_address"/>
+        <result property="firstSeen" column="first_seen"/>
+        <result property="lastSeen" column="last_seen"/>
+        <result property="visitCount" column="visit_count"/>
+        <result property="tokenUsage" column="token_usage"/>
+    </resultMap>
+
+    <!-- 基础查询SQL -->
+    <sql id="Base_Column_List">
+        id, user_name, ip_address, first_seen, last_seen, visit_count, token_usage
+    </sql>
+
+    <!-- 根据ID查询用户 -->
+    <select id="selectById" resultMap="UserResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM user
+        WHERE id = #{id}
+    </select>
+
+    <!-- 根据IP地址查询用户 -->
+    <select id="selectByIpAddress" resultMap="UserResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM user
+        WHERE ip_address = #{ipAddress}
+        LIMIT 1
+    </select>
+
+    <!-- 根据用户名查询用户 -->
+    <select id="selectByUserName" resultMap="UserResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM user
+        WHERE user_name = #{userName}
+        LIMIT 1
+    </select>
+
+    <!-- 根据用户名和IP查询用户 -->
+    <select id="selectByUserNameAndIp" resultMap="UserResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM user
+        WHERE user_name = #{userName} AND ip_address = #{ipAddress}
+        LIMIT 1
+    </select>
+
+    <!-- 查询所有用户 -->
+    <select id="selectAll" resultMap="UserResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM user
+        ORDER BY last_seen DESC
+    </select>
+
+    <!-- 根据访问次数排序查询用户 -->
+    <select id="selectAllOrderByVisitCount" resultMap="UserResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM user
+        ORDER BY visit_count DESC, last_seen DESC
+    </select>
+
+    <!-- 插入新用户 -->
+    <insert id="insertUser" parameterType="User" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO user (
+        user_name, ip_address, first_seen, last_seen, visit_count, token_usage
+        ) VALUES (
+        #{userName}, #{ipAddress}, #{firstSeen}, #{lastSeen}, #{visitCount}, #{tokenUsage}
+        )
+    </insert>
+
+    <!-- 更新用户信息 -->
+    <update id="updateUser" parameterType="User">
+        UPDATE user
+        <set>
+            <if test="userName != null and userName != ''">
+                user_name = #{userName},
+            </if>
+            <if test="ipAddress != null and ipAddress != ''">
+                ip_address = #{ipAddress},
+            </if>
+            <if test="firstSeen != null">
+                first_seen = #{firstSeen},
+            </if>
+            <if test="lastSeen != null">
+                last_seen = #{lastSeen},
+            </if>
+            <if test="visitCount != null">
+                visit_count = #{visitCount},
+            </if>
+            <if test="tokenUsage != null">
+                token_usage = #{tokenUsage}
+            </if>
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <!-- 更新用户访问信息 -->
+    <update id="updateUserVisit">
+        UPDATE user
+        SET last_seen = NOW(),
+        visit_count = visit_count + 1
+        WHERE id = #{id}
+    </update>
+
+    <!-- 增加用户token使用量 -->
+    <update id="addTokenUsage">
+        UPDATE user
+        SET token_usage = IFNULL(token_usage, 0) + #{tokens}
+        WHERE id = #{id}
+    </update>
+
+    <!-- 根据ID删除用户 -->
+    <delete id="deleteById">
+        DELETE FROM user WHERE id = #{id}
+    </delete>
+
+    <!-- 统计用户总数 -->
+    <select id="countUsers" resultType="int">
+        SELECT COUNT(*) FROM user
+    </select>
+
+    <!-- 检查IP是否已存在 -->
+    <select id="existsByIpAddress" resultType="boolean">
+        SELECT COUNT(*) > 0 FROM user WHERE ip_address = #{ipAddress}
+    </select>
+
+    <!-- 检查用户名是否已存在 -->
+    <select id="existsByUserName" resultType="boolean">
+        SELECT COUNT(*) > 0 FROM user WHERE user_name = #{userName}
+    </select>
+
+</mapper>
