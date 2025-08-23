@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package com.rpc.service.web.viewer.gne;
+
+option java_package = "com.rpc.service.web.viewer.gne";
+option java_multiple_files = true;
+option java_outer_classname = "GNEProto";
+
+message WebListRequest {
+  repeated  string urls = 1;
+  int32 timeout_seconds = 2; // 请求超时时间（秒）
+  map<string, string> custom_headers = 3; // 自定义请求头
+}
+
+message Content {
+  string title = 1;               // 字符串字段，表示标题
+  string author = 2;              // 字符串字段，表示作者
+  string publish_time = 3;        // 字符串字段，表示发布时间
+  string content = 4;             // 字符串字段，表示正文
+  repeated string images = 5;     // 字符串数组，存储多个图片链接
+  map<string, string> meta = 6;   // 键值对类型（Map），存储元信息
+}
+
+// 批量返回的响应格式
+message ContentListResponse {
+  repeated Content contents = 1;  // 包含多个 Content 的列表
+}
+
+service NewsViewerService{
+  rpc ViewPage(WebListRequest) returns (ContentListResponse);
+}

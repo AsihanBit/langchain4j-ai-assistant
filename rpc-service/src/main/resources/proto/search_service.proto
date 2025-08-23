@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package com.rpc.service.web.searcher.searxng;
+
+option java_package = "com.rpc.service.web.searcher.searxng";
+option java_multiple_files = true;
+option java_outer_classname = "SearXNGProto";
+
+// 定义异步搜索服务
+service AsyncSearchService {
+  // 执行一次搜索
+  rpc Search(SearchRequest) returns (SearchResponse);
+}
+
+// 搜索请求消息，包含了所有用户指定的参数
+message SearchRequest {
+  string query = 1;         // 搜索关键词, e.g., "苹果17"
+  int32 page_number = 2;    // 页码
+  string time_range = 3;    // 时间范围, e.g., "", "day", "week"
+  string category = 4;      // 类别, e.g., "general", "images"
+  string language = 5;      // 语言, e.g., "auto", "zh-CN"
+  bool safe_search = 6;     // 安全搜索 (true for 1, false for 0)
+}
+
+// 单条搜索结果的结构
+message SearchResultItem {
+  string title = 1;
+  string url = 2;
+  string content = 3;
+}
+
+// 搜索响应消息，包含一个结果列表
+message SearchResponse {
+  repeated SearchResultItem results = 1;
+}

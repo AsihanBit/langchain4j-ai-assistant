@@ -7,14 +7,14 @@ import dev.langchain4j.service.spring.AiService;
 import dev.langchain4j.service.spring.AiServiceWiringMode;
 import reactor.core.publisher.Flux;
 
-@AiService(wiringMode = AiServiceWiringMode.AUTOMATIC,
-        chatMemoryProvider = "chatMemoryProviderOpenAi",
-        tools = {"textTools"})
+//@AiService(wiringMode = AiServiceWiringMode.AUTOMATIC,
+//        chatMemoryProvider = "chatMemoryProviderOpenAi",
+//        tools = {"textTools", "grpcTools"}) // 用 Builder 配置
 public interface OpenAiAgent {
 
-    @SystemMessage(fromResource = "${chat.prompt.path}")
+//    @SystemMessage(fromResource = "${chat.prompt.path}") // 使用 PromptProvider Bean 来提供系统消息
 
-        // 非流式
+    // 非流式
     String chat(@MemoryId String memoryId, @UserMessage String input);
 
     // 流式：直接返回 Flux（LangChain4j 会自动适配）
