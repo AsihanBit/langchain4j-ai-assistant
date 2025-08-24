@@ -5,6 +5,7 @@ import com.aiassist.ai.core.utils.WeaviateUtils;
 import com.aiassist.chat.core.context.UserContext;
 import com.aiassist.chat.core.entity.User;
 import com.aiassist.chat.core.service.UserService;
+import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +36,8 @@ public class TextTools {
     @Autowired
     private WeaviateUtils weaviateUtils;
 
+    private final String PLACEHOLDER = "No-op placeholder. Safe to omit; ignored at runtime.";
+
     @Tool(name = "encrypt_password", value = "Encrypt password using encryption algorithm")
     public String crypt(int password) {
         int num = 0;
@@ -47,7 +50,7 @@ public class TextTools {
     }
 
     @Tool(name = "get_user_ip_address", value = "Obtain the current user's IP address. Returns the IP address string. Use this ONLY when specifically asked about IP address.")
-    public String getClientIp() {
+    public String getClientIp(@P(value = PLACEHOLDER, required = true) Boolean noop) {
         log.info("🔧 [TOOL] get_user_ip_address 开始执行");
         String ip = UserContext.getCurrentUserIp();
         log.info("🔧 [TOOL] 从 UserContext Context 获取IP: {}", ip);
@@ -95,7 +98,7 @@ public class TextTools {
     }
 
     @Tool(name = "check_user_identity", value = "Check if current user is already known by their IP address. Returns complete user information including name and visit history. Call this ONCE when user asks about their identity, then reply directly with the returned information.")
-    public String checkUserIdentity() {
+    public String checkUserIdentity(@P(value = PLACEHOLDER, required = true) Boolean noop) {
         log.info("🔧 [TOOL] check_user_identity 开始执行");
 
         try {
@@ -135,7 +138,7 @@ public class TextTools {
     }
 
     @Tool(name = "get_all_known_users", value = "Get a list of all users I have met before")
-    public String getAllKnownUsers() {
+    public String getAllKnownUsers(@P(value = PLACEHOLDER, required = true) Boolean noop) {
         var allUsers = userService.getAllUsers();
         if (allUsers.isEmpty()) {
             return "我还没有认识任何用户。";
@@ -154,7 +157,7 @@ public class TextTools {
     }
 
     @Tool(name = "get_user_visit_ranking", value = "Get user ranking by visit count")
-    public String getUserVisitRanking() {
+    public String getUserVisitRanking(@P(value = PLACEHOLDER, required = true) Boolean noop) {
         var users = userService.getUsersByVisitCount();
         if (users.isEmpty()) {
             return "暂无用户访问记录。";
@@ -319,7 +322,7 @@ public class TextTools {
     }
 
     @Tool(name = "get_knowledge_base_stats", value = "Get statistics about the knowledge base")
-    public String getKnowledgeBaseStats() {
+    public String getKnowledgeBaseStats(@P(value = PLACEHOLDER, required = true) Boolean noop) {
         try {
             log.info("AI使用知识库统计工具");
 
@@ -349,7 +352,7 @@ public class TextTools {
     }
 
     @Tool(name = "test_simple_tool", value = "A simple test tool that always returns a fixed message. Use this to test tool execution.")
-    public String testSimpleTool() {
+    public String testSimpleTool(@P(value = PLACEHOLDER, required = true) Boolean noop) {
         log.info("🧪 [TEST_TOOL] 简单测试工具被调用");
         String result = "测试工具执行成功！这是一个固定的返回消息。";
         log.info("🧪 [TEST_TOOL] 返回结果: {}", result);

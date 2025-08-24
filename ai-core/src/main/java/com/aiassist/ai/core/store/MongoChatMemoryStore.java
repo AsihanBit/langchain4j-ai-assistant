@@ -24,10 +24,7 @@ import org.springframework.stereotype.Component;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 
@@ -110,22 +107,22 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
             }
 
             // 2. 缓存未命中，从MongoDB获取最近的消息
-            List<ChatMessage> dbMessages = getRecentMessagesFromDB(memoryIdStr);
+            List<Message> dbMessages = getRecentMessagesFromDB(memoryIdStr);
             log.info("🔍 [MONGODB] MongoDB最近消息数量: {}", dbMessages.size());
 
-            // 3. 确保SystemMessage在turn_index=0，并构建完整消息列表
-            List<ChatMessage> allMessages = buildCompleteMessageList(dbMessages);
-
-            // 4. 更新Redis缓存
-            if (!allMessages.isEmpty()) {
-                cacheService.updateMessages(memoryIdStr, allMessages);
-                log.info("💾 [CACHE] 已将消息缓存到Redis: memoryId={}", memoryIdStr);
+            if (dbMessages.isEmpty()) {
+                return new ArrayList<>();
             }
 
-            log.info("🔍 [FINAL] 最终返回消息数量: {}", allMessages.size());
-            logMessageList("getMessages返回(数据库)", allMessages);
+            // 5. 使用带有真实turnIndex的原始Message列表更新Redis缓存
+            SystemMessage systemMessage = createSystemMessage(); // 获取默认的SystemMessage
+            List<ChatMessage> chatMessages = updateRedisCacheWithRealTurnIndex(memoryIdStr, systemMessage, dbMessages);
+            log.info("💾 [CACHE] 已将带有真实turnIndex的消息缓存到Redis: memoryId={}", memoryIdStr);
 
-            return allMessages;
+            log.info("🔍 [FINAL] 最终返回消息数量: {}", chatMessages.size());
+            logMessageList("getMessages返回", chatMessages);
+
+            return chatMessages;
 
         } catch (Exception e) {
             log.error("❌ [MONGODB] 获取聊天记忆失败: memoryId={}", memoryIdStr, e);
@@ -149,6 +146,16 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
         logMessageList("updateMessages接收", messages);
 
         try {
+            // 从Redis缓存获取 目前 turn_index
+            ChatMessageWrapper wrapper = cacheService.getCacheInfo(memoryIdStr);
+            int currentTurnIdx = -1;
+            if (wrapper != null) {
+                log.info("🔍 [CACHE] Redis缓存中 获取到当前 turn_index : {}", currentTurnIdx);
+                currentTurnIdx = wrapper.getCurrentTurnIndex();
+            } else {
+                log.info("🔍 [CACHE] Redis缓存中 没有获取到 turn_index : {}", currentTurnIdx);
+            }
+
             // 1. 过滤SystemMessage，只保留turn_index=0的SystemMessage
             SystemMessage systemMessage = extractSystemMessage(messages);
             List<ChatMessage> nonSystemMessages = filterNonSystemMessages(messages);
@@ -156,10 +163,10 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
             log.info("💾 [MEMORY] 过滤后非SystemMessage数量: {}", nonSystemMessages.size());
 
             // 2. 识别并保存真正的新消息
-            saveOnlyNewMessages(memoryIdStr, nonSystemMessages);
+            saveOnlyNewMessages(memoryIdStr, nonSystemMessages, currentTurnIdx); // TODO 此方法里面, 如果当前是TOOL_CALL单独就跳过, TOOL_CALL TOOL_RESULT一起才保存至 mongodb
 
             // 4. 应用窗口淘汰策略，更新Redis缓存
-            updateRedisCacheWithWindowEviction(memoryIdStr, systemMessage);
+            updateRedisCacheWithWindowEviction(memoryIdStr, systemMessage); // TODO 此方法里面, 如果当前添加的是 USER 类型, 并且前面的是 TOOL_CALL类型, 说明没有返回 TOOL_RESULT, 就把缓存中 TOOL_CALL 删除
 
             log.info("✅ [UPDATE] updateMessages完成: memoryId={}", memoryIdStr);
 
@@ -174,7 +181,7 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
     /**
      * 从MongoDB获取最近的消息（基于窗口大小）
      */
-    private List<ChatMessage> getRecentMessagesFromDB(String memoryId) {
+    private List<Message> getRecentMessagesFromDB(String memoryId) {
         try {
             // 获取最近的消息，数量为窗口大小
             Query query = new Query(Criteria.where("memoryId").is(memoryId))
@@ -184,17 +191,12 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
             List<Message> messages = mongoTemplate.find(query, Message.class);
             log.info("🔍 [MONGODB] 查询到最近 {} 条消息记录", messages.size());
 
-            // 转换为ChatMessage并按turn_index正序排列
-            List<ChatMessage> chatMessages = new ArrayList<>();
-            for (int i = messages.size() - 1; i >= 0; i--) {
-                Message message = messages.get(i);
-                ChatMessage chatMessage = convertIndividualMessageToChatMessage(message);
-                if (chatMessage != null) {
-                    chatMessages.add(chatMessage);
-                }
-            }
+            // 按turnIndex正序排列
+//            messages.sort(Comparator.comparingInt(Message::getTurnIndex));
+            // 将降序结果倒序为正序
+            Collections.reverse(messages);
 
-            return chatMessages;
+            return messages;
         } catch (Exception e) {
             log.error("❌ [MONGODB] 从MongoDB获取最近消息失败: memoryId={}", memoryId, e);
             return new ArrayList<>();
@@ -308,7 +310,7 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
     /**
      * 识别并保存真正的新消息
      */
-    private void saveOnlyNewMessages(String memoryId, List<ChatMessage> currentMessages) {
+    private void saveOnlyNewMessages(String memoryId, List<ChatMessage> currentMessages, int cacheTurnIdx) {
         log.info("=== 识别并保存新消息 ===");
 
         if (currentMessages.isEmpty()) {
@@ -316,10 +318,15 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
             return;
         }
 
-        // 获取当前MongoDB中的最大turn_index
-        // TODO 这里查询mongodb可以优化成从缓存获取
-        int currentMaxTurnIndex = getCurrentMaxTurnIndex(memoryId);
-        log.info("💾 [SAVE] 当前MongoDB最大turn_index: {}", currentMaxTurnIndex);
+        // 🌟 [FIX] 优化turn_index获取逻辑，优先从缓存获取，缓存失效则从DB查询
+        int currentMaxTurnIndex;
+        if (cacheTurnIdx <= 0) { // 缓存中没有有效的turn_index，说明缓存是新生成的
+            log.warn("⚠️ [SAVE] Redis缓存的turn_index无效 ({})，将从MongoDB重新查询以确保数据一致性...", cacheTurnIdx);
+            currentMaxTurnIndex = getCurrentMaxTurnIndex(memoryId);
+        } else {
+            currentMaxTurnIndex = cacheTurnIdx;
+        }
+        log.info("💾 [SAVE] 确定当前最大turn_index为: {}", currentMaxTurnIndex);
 
         // 获取Redis缓存中的消息，用于比较
         List<ChatMessage> allCachedMessages = cacheService.getMessages(memoryId);
@@ -438,7 +445,7 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
         log.info("=== 应用窗口淘汰策略更新Redis缓存 ===");
 
         try {
-            // 1. 从MongoDB获取最近的消息（基于窗口大小，保持turnIndex信息）
+            // 1. 从MongoDB获取最近的消息（基于窗口大小，保持turnIndex信息） TODO 改为缓存中获取
             List<Message> recentMongoMessages = getRecentMessagesFromDB(memoryId, memoryMaxSize);
             log.info("💾 [WINDOW] 从MongoDB获取最近{}条消息", recentMongoMessages.size());
 
@@ -455,7 +462,7 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
     /**
      * 使用真实turnIndex更新Redis缓存
      */
-    private void updateRedisCacheWithRealTurnIndex(String memoryId, SystemMessage systemMessage, List<Message> recentMessages) {
+    private List<ChatMessage> updateRedisCacheWithRealTurnIndex(String memoryId, SystemMessage systemMessage, List<Message> recentMessages) {
         log.info("=== 使用真实turnIndex更新Redis缓存 ===");
 
         try {
@@ -519,8 +526,11 @@ public class MongoChatMemoryStore implements ChatMemoryStore {
                 log.info("  [{}] 类型: {}, turnIndex: {}, 内容: {}", i, msg.getType(), msg.getTurnIndex(), preview);
             }
 
+            return wrapper.getChatMessages();
+
         } catch (Exception e) {
             log.error("❌ [CACHE] 使用真实turnIndex更新Redis缓存失败: memoryId={}", memoryId, e);
+            return List.of();
         }
     }
 

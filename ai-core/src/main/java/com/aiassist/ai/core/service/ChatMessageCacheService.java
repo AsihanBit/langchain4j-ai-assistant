@@ -75,6 +75,14 @@ public class ChatMessageCacheService {
         }
     }
 
+    private void logChatMessageList(List<ChatMessage> chatMessages) {
+        for (int i = 0; i < chatMessages.size(); i++) {
+            ChatMessage msg = chatMessages.get(i);
+            String content = getMessageContentForLog(msg);
+            log.info("  [{}] 类型: {}, 内容: {}", i, msg.type().toString(), content);
+        }
+    }
+
     /**
      * 比较两条消息是否相同
      */
@@ -149,14 +157,7 @@ public class ChatMessageCacheService {
 
         // 输出传入的消息列表详情
         log.info("💾 [CACHE] 传入的消息列表详情:");
-        for (int i = 0; i < Math.min(messages.size(), 10); i++) {
-            ChatMessage msg = messages.get(i);
-            String content = getMessageContentForLog(msg);
-            log.info("  [{}] 类型: {}, 内容: {}", i, msg.type().toString(), content);
-        }
-        if (messages.size() > 10) {
-            log.info("  ... 还有 {} 条消息", messages.size() - 10);
-        }
+        logChatMessageList(messages);
 
         try {
             // 直接替换整个缓存，避免重复消息问题
@@ -169,11 +170,7 @@ public class ChatMessageCacheService {
             // 输出Redis中的消息详情
             log.info("💾 [CACHE] Redis中的消息详情:");
             List<ChatMessage> cachedMessages = wrapper.getChatMessages();
-            for (int i = 0; i < cachedMessages.size(); i++) {
-                ChatMessage msg = cachedMessages.get(i);
-                String content = getMessageContentForLog(msg);
-                log.info("  [{}] 类型: {}, 内容: {}", i, msg.type().toString(), content);
-            }
+            logChatMessageList(cachedMessages);
 
         } catch (Exception e) {
             log.error("❌ [CACHE] 更新Redis缓存失败: memoryId={}", memoryId, e);
