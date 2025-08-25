@@ -40,7 +40,7 @@ build/
 /systemConfig
 /docs
 /testpy
-
+**/application-dev.yml
 # Local dev config (contains secrets)
 src/main/resources/application-dev.yml
 

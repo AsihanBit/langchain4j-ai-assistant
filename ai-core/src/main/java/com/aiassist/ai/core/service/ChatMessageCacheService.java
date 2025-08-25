@@ -128,23 +128,10 @@ public class ChatMessageCacheService {
      * 从缓存获取消息
      */
     public List<ChatMessage> getMessages(String memoryId) {
-        String cacheKey = getCacheKey(memoryId);
-        log.debug("🔍 [CACHE] 从Redis获取消息: memoryId={}", memoryId);
-
-        try {
-            ChatMessageWrapper wrapper = (ChatMessageWrapper) redisTemplate.opsForValue().get(cacheKey);
-            if (wrapper != null) {
-                wrapper.updateAccessTime();
-                // 更新访问时间到Redis
-                redisTemplate.expire(cacheKey, Duration.ofHours(cacheExpireHours));
-                log.debug("✅ [CACHE] 从Redis获取消息成功: memoryId={}, 消息数量={}", memoryId, wrapper.getMessageCount());
-                return wrapper.getChatMessages();
-            }
-        } catch (Exception e) {
-            log.error("❌ [CACHE] 从Redis获取消息失败: memoryId={}", memoryId, e);
+        ChatMessageWrapper wrapper = getCacheInfo(memoryId);
+        if (wrapper != null) {
+            return wrapper.getChatMessages();
         }
-
-        log.debug("🔍 [CACHE] Redis中无缓存数据: memoryId={}", memoryId);
         return null;
     }
 
@@ -251,7 +238,16 @@ public class ChatMessageCacheService {
     public ChatMessageWrapper getCacheInfo(String memoryId) {
         String cacheKey = getCacheKey(memoryId);
         try {
-            return (ChatMessageWrapper) redisTemplate.opsForValue().get(cacheKey);
+            ChatMessageWrapper wrapper = (ChatMessageWrapper) redisTemplate.opsForValue().get(cacheKey);
+            if (wrapper != null) {
+                wrapper.updateAccessTime();
+                // 更新访问时间到Redis
+                redisTemplate.expire(cacheKey, Duration.ofHours(cacheExpireHours));
+                log.debug("✅ [CACHE] 从Redis获取消息成功: memoryId={}, 消息数量={}", memoryId, wrapper.getMessageCount());
+                return wrapper;
+            }
+            log.debug("🔍 [CACHE] Redis中无缓存数据: memoryId={}", memoryId);
+            return null;
         } catch (Exception e) {
             log.error("❌ [CACHE] 获取缓存信息失败: memoryId={}", memoryId, e);
             return null;

@@ -158,4 +158,6 @@ logging:
     com:
       aiassist:
         mediassist: INFO
-#          tools: INFO
+  #          tools: INFO
+  pattern:
+    console: "%msg%n"

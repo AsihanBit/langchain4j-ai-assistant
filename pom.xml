@@ -26,6 +26,7 @@
         <module>chat-server</module>
         <module>chat-core</module>
         <module>rpc-service</module>
+        <module>general-services</module>
     </modules>
     <scm>
         <connection/>
