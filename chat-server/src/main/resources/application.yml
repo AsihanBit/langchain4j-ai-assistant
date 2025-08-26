@@ -153,11 +153,22 @@ chat:
     # 缓存中的消息数量，比 记忆消息窗口 多记录一个系统提示词，所以大1
     max-size: 7
 
+# gRPC客户端配置
+grpc:
+  search:
+    client:
+      host: ${grpc.search.client.host}
+      port: ${grpc.search.client.port}
+  view:
+    client:
+      host: ${grpc.view.client.host}
+      port: ${grpc.view.client.port}
+
+# 日志配置
 logging:
   level:
     com:
-      aiassist:
-        mediassist: INFO
+      aiassist: DEBUG
   #          tools: INFO
   pattern:
     console: "%msg%n"

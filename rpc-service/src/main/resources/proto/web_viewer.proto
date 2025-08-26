@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package com.rpc.service.web.viewer.selectolax;
+
+option java_package = "com.rpc.service.web.viewer.selectolax";
+option java_multiple_files = true;
+option java_outer_classname = "SelectolaxProto";
+
+import "google/protobuf/timestamp.proto";
+
+// 简易网页浏览 gRPC 服务定义
+service WebViewerService {
+  // 从URL提取网页内容
+  rpc ViewWebPage(ViewRequest) returns (ViewResponse);
+}
+
+// 浏览请求
+message ViewRequest {
+  string url = 1;                        // 要浏览的网页URL
+  int32 timeout_seconds = 2;             // 请求超时时间（秒），默认15秒
+  map<string, string> custom_headers = 3; // 自定义请求头
+  bool include_links = 4;                // 是否包含链接
+  bool include_images = 5;               // 是否包含图片信息
+  bool preserve_newlines = 6;            // 是否保留换行符
+  optional int32 text_start_pos = 7;     // 文本截取起始位置（可选，为空则从开头开始）
+  optional int32 text_end_pos = 8;       // 文本截取结束位置（可选，为空则到结尾结束）
+}
+
+// 浏览响应
+message ViewResponse {
+  string url = 1;                        // 原始URL
+  string title = 2;                      // 页面标题
+  string text_content = 3;               // 提取的文本内容
+  repeated string links = 4;             // 页面中的链接
+  repeated string images = 5;            // 页面中的图片URL
+  int32 status_code = 6;                 // HTTP状态码
+  google.protobuf.Timestamp viewed_at = 7; // 浏览时间
+  string error_message = 8;              // 错误信息（如果有）
+  double processing_time = 9;            // 处理时间（秒）
+}

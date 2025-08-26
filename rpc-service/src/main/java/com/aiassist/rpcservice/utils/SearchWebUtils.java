@@ -1,12 +1,10 @@
 package com.aiassist.rpcservice.utils;
 
 import com.aiassist.rpcservice.client.SearchServiceClient;
-import com.aiassist.rpcservice.dto.SearchResultItemDTO;
 import com.rpc.service.web.searcher.searxng.SearchResultItem;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.stereotype.Service;
 
 import java.util.List;
 
@@ -16,18 +14,21 @@ public class SearchWebUtils {
     @Autowired
     private SearchServiceClient searchServiceClient;
 
-    public List<SearchResultItemDTO> searchWeb(String keyWord) {
+    public List<SearchResultItem> searchWeb(String keyWord) {
         log.info("SearchWebUtils 工具类, 搜索关键字: {}", keyWord);
-        List<SearchResultItem> results = searchServiceClient.search(keyWord);
-        printResults(results);
-
-        return results.stream()
-                .map(this::toDto)
-                .toList();
+        return searchServiceClient.search(keyWord);
     }
 
-    private SearchResultItemDTO toDto(SearchResultItem it) { // todo 提高 Bean 拷贝性能
-        return new SearchResultItemDTO(it.getTitle(), it.getUrl(), it.getContent());
+    /**
+     * 搜索网页并返回格式化字符串
+     *
+     * @param keyWord 搜索关键字
+     * @return 格式化后的搜索结果字符串
+     */
+    public String searchWebFormattedDirect(String keyWord) {
+        log.info("SearchWebUtils 工具类, 搜索关键字: {}", keyWord);
+        List<SearchResultItem> results = searchServiceClient.search(keyWord);
+        return SearchResponseFormatter.toFormattedStringDirect(results);
     }
 
     /**
@@ -37,16 +38,16 @@ public class SearchWebUtils {
      */
     public void printResults(List<SearchResultItem> results) {
         if (results == null || results.isEmpty()) {
-            System.out.println("未找到任何结果。");
+            log.info("未找到任何结果。");
             return;
         }
         System.out.println("=== 搜索结果 ===");
         for (int i = 0; i < results.size(); i++) {
             SearchResultItem item = results.get(i);
-            System.out.printf("%d. 标题: %s%n", i + 1, item.getTitle());
-            System.out.printf("   链接: %s%n", item.getUrl());
-            System.out.printf("   内容: %s%n", item.getContent());
-            System.out.println("   ---");
+            log.info("{}. 标题: {}", i + 1, item.getTitle());
+            log.info("   链接: {}", item.getUrl());
+            log.info("   内容: {}", item.getContent());
+            log.info("   ---");
         }
     }
 }

@@ -26,14 +26,14 @@ public class SearchServiceClient {
 
     private static final Logger logger = LoggerFactory.getLogger(SearchServiceClient.class);
 
-    @Value("${grpc.client.host:localhost}")
+    @Value("${grpc.search.client.host:localhost}")
     private String host;
 
-    @Value("${grpc.client.port:50052}")
+    @Value("${grpc.search.client.port:50052}")
     private int port;
 
     private ManagedChannel channel;
-    private AsyncSearchServiceGrpc.AsyncSearchServiceBlockingStub blockingStub;
+    private AsyncSearchServiceGrpc.AsyncSearchServiceBlockingStub blockingStub; // TODO FutureStub
 
     /**
      * 使用@PostConstruct注解，在Bean初始化后执行此方法。
