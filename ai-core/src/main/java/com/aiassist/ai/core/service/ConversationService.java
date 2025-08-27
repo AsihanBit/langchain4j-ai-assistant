@@ -2,12 +2,14 @@ package com.aiassist.ai.core.service;
 
 import com.aiassist.ai.core.entity.Conversation;
 import com.aiassist.ai.core.store.MongoChatMemoryStore;
+import com.mongodb.client.result.UpdateResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -33,16 +35,20 @@ public class ConversationService {
     /**
      * 创建新会话
      */
-    public String createNewConversation(String userIp) {
+    public Conversation createNewConversation(String userIp) {
         // 生成唯一的 memoryId (使用时间戳 + UUID)
         String memoryId = generateMemoryId();
         try {
-            // 创建会话
+            // 获取当前时间
             LocalDateTime now = LocalDateTime.now();
+            String newTitle = generateDefaultTitle(now);
+
+            // 创建会话
             Conversation conversation = Conversation.builder()
                     // TODO 统一 主键id 生成逻辑
                     .id(UUID.randomUUID().toString())
                     .memoryId(memoryId)
+                    .title(newTitle)
                     .userIp(userIp)
                     .createdTime(now)
                     .lastSendTime(now)
@@ -50,11 +56,12 @@ public class ConversationService {
             mongoTemplate.save(conversation);
 
             log.info("创建新会话成功: memoryId={}, userIp={}", memoryId, userIp);
+
+            return conversation;
         } catch (Exception e) {
             log.error("创建会话失败: memoryId={}", memoryId, e);
             throw new RuntimeException("创建会话失败", e);
         }
-        return memoryId;
     }
 
     /**
@@ -77,6 +84,30 @@ public class ConversationService {
     }
 
     /**
+     * 更新会话文档的 title 字段
+     *
+     * @param memoryId 会话的 memoryId，用于定位文档
+     * @param newTitle 新的 title 的值
+     * @return 更新成功返回 true，否则返回 false
+     */
+    public boolean updateConversationTitle(String memoryId, String newTitle) {
+        // 构建查询条件：通过 memory_id 匹配目标文档
+        Query query = Query.query(Criteria.where("memory_id").is(memoryId));
+
+        // 构建更新操作：设置 title 的新值
+        Update update = new Update();
+        update.set("title", newTitle);
+
+        // 执行更新操作
+        UpdateResult result = mongoTemplate.updateFirst(query, update, Conversation.class);
+
+        // 返回是否成功更新（受影响的文档数量 > 0）
+        return result.getModifiedCount() > 0;
+    }
+
+    // TODO 更新会话最后发送时间
+
+    /**
      * 删除会话
      */
     public void deleteConversation(String memoryId) {
@@ -86,6 +117,18 @@ public class ConversationService {
     }
 
     // ==================== 私有辅助方法 ====================
+
+    /**
+     * 生成默认标题
+     */
+    private String generateDefaultTitle(LocalDateTime time) {
+        // 格式化时间为 "MMdd_HH:mm"，如 "0827_16:30"
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMdd_HH:mm");
+        String formattedTime = time.format(formatter);
+        // 根据格式化时间生成标题 "新对话_0827_16:30"
+        String newTitle = "新对话_" + formattedTime;
+        return newTitle;
+    }
 
     /**
      * 生成唯一的 memoryId
@@ -117,7 +160,8 @@ public class ConversationService {
         if (clientMemoryId == null || clientMemoryId.trim().isEmpty() ||
                 !isValidConversation(clientMemoryId)) {
 
-            String newMemoryId = createNewConversation(userIp);
+            Conversation conversation = createNewConversation(userIp);
+            String newMemoryId = conversation.getMemoryId();
             log.info("客户端memoryId无效 '{}', 自动创建新会话: {}", clientMemoryId, newMemoryId);
             return newMemoryId;
         }

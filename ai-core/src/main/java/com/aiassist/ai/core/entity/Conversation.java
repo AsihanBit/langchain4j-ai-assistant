@@ -39,6 +39,13 @@ public class Conversation {
     private String userIp;
 
     /**
+     * 对话标题
+     */
+    @Field("title")
+    @Indexed
+    private String title;
+
+    /**
      * 会话创建时间（BSON Date）。可与 memoryId 绑定，冗余以便排序/筛选
      */
     @Field("created_time")
