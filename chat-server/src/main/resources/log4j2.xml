@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="DEBUG">
+    <Properties>
+        <Property name="LOG_HOME">${spring:log.file.path}</Property>
+        <Property name="PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg %ex{short}%n</Property>
+        <!-- 获取启动时间作为文件名的一部分 -->
+        <Property name="START_TIME">${date:yyyy_MMdd_HHmmss}</Property>
+    </Properties>
+    <Appenders>
+        <!-- 控制台输出 -->
+        <Console name="Console">
+            <PatternLayout pattern="${PATTERN}"/>
+        </Console>
+        <!-- 按日期和大小滚动的文件输出 -->
+        <RollingFile name="RollingFile"
+                     fileName="${LOG_HOME}/app-${START_TIME}.log"
+                     filePattern="${LOG_HOME}/%d{yyyy}/%d{MM}/%d{dd}/app-%d{yyyy-MM-dd}-%i.log.gz">
+            <PatternLayout pattern="${PATTERN}"/>
+            <Policies>
+                <!-- 每天滚动一次 -->
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                <!-- 文件大小超过50MB时滚动 -->
+                <SizeBasedTriggeringPolicy size="50 MB"/>
+            </Policies>
+            <!-- 每天最多保留10个文件，超过30天的文件自动删除 -->
+            <DefaultRolloverStrategy max="10">
+                <Delete basePath="${LOG_HOME}" maxDepth="4">
+                    <IfFileName glob="*/*/*/app-*.log.gz"/>
+                    <IfLastModified age="30d"/>
+                </Delete>
+            </DefaultRolloverStrategy>
+        </RollingFile>
+
+        <!-- 错误日志单独记录 -->
+        <RollingFile name="ErrorFile"
+                     fileName="${LOG_HOME}/error-${START_TIME}.log"
+                     filePattern="${LOG_HOME}/%d{yyyy}/%d{MM}/%d{dd}/error-%d{yyyy-MM-dd}-%i.log.gz">
+            <PatternLayout pattern="${PATTERN}"/>
+            <ThresholdFilter level="WARN" onMatch="ACCEPT" onMismatch="DENY"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                <SizeBasedTriggeringPolicy size="20 MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="5">
+                <Delete basePath="${LOG_HOME}" maxDepth="4">
+                    <IfFileName glob="*/*/*/error-*.log.gz"/>
+                    <IfLastModified age="30d"/>
+                </Delete>
+            </DefaultRolloverStrategy>
+        </RollingFile>
+    </Appenders>
+    <Loggers>
+        <!-- level: 默认级别 INFO -->
+        <Root level="INFO">
+            <!-- 绑定到控制台和文件 生产去掉控制台 -->
+            <!--            <AppenderRef ref="Console"/>-->
+            <AppenderRef ref="RollingFile"/>
+            <AppenderRef ref="ErrorFile"/>
+        </Root>
+    </Loggers>
+</Configuration>

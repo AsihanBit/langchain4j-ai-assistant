@@ -1,5 +1,6 @@
 package com.aiassist.rpcservice.client;
 
+import com.google.common.util.concurrent.ListenableFuture;
 import com.rpc.service.web.searcher.searxng.AsyncSearchServiceGrpc;
 import com.rpc.service.web.searcher.searxng.SearchRequest;
 import com.rpc.service.web.searcher.searxng.SearchResponse;
@@ -7,6 +8,7 @@ import com.rpc.service.web.searcher.searxng.SearchResultItem;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,12 +17,15 @@ import org.springframework.stereotype.Component;
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * gRPC客户端，作为Spring Bean进行管理。
  * 通过依赖注入使用，并从配置文件中获取连接信息。
  */
+@Slf4j
 @Component
 public class SearchServiceClient {
 
@@ -33,7 +38,8 @@ public class SearchServiceClient {
     private int port;
 
     private ManagedChannel channel;
-    private AsyncSearchServiceGrpc.AsyncSearchServiceBlockingStub blockingStub; // TODO FutureStub
+    //    private AsyncSearchServiceGrpc.AsyncSearchServiceBlockingStub blockingStub; // 换成了 FutureStub
+    private AsyncSearchServiceGrpc.AsyncSearchServiceFutureStub futureStub;
 
     /**
      * 使用@PostConstruct注解，在Bean初始化后执行此方法。
@@ -44,7 +50,8 @@ public class SearchServiceClient {
         channel = ManagedChannelBuilder.forAddress(host, port)
                 .usePlaintext() // 在生产环境中建议使用TLS加密
                 .build();
-        blockingStub = AsyncSearchServiceGrpc.newBlockingStub(channel);
+//        blockingStub = AsyncSearchServiceGrpc.newBlockingStub(channel);
+        futureStub = AsyncSearchServiceGrpc.newFutureStub(channel);
         logger.info("gRPC client bean initialized, connected to {}:{}", host, port);
     }
 
@@ -74,16 +81,41 @@ public class SearchServiceClient {
                     .setSafeSearch(safeSearch)
                     .build();
 
-            SearchResponse response = blockingStub.search(request);
-            List<SearchResultItem> results = response.getResultsList();
+//            SearchResponse response = blockingStub.search(request);
 
-            logger.info("Search completed, returned {} results", results.size());
+            // 使用Future客户端发送请求并等待结果 TODO 调整超时参数
+            ListenableFuture<SearchResponse> future = futureStub
+                    .withDeadlineAfter(5, TimeUnit.SECONDS)
+                    .search(request);
+            // 等待Future结果
+            SearchResponse response = future.get(10, TimeUnit.SECONDS);
+
+            logger.info("Search completed, returned {} results", response.getResultsList());
+            List<SearchResultItem> results = response.getResultsList();
             return results;
 
         } catch (StatusRuntimeException e) {
-            logger.error("Search request failed: {}", e.getStatus());
+            log.error("gRPC 调用失败: code={}, desc={}, query={}, pageNumber={}",
+                    e.getStatus().getCode(), e.getStatus().getDescription(), query, pageNumber, e);
             // 转换为更通用的异常，以便上层处理
-            throw new RuntimeException("gRPC service call failed", e);
+            throw new RuntimeException("gRPC service call failed: " + e.getStatus(), e);
+        } catch (TimeoutException e) {
+            log.error("网页搜索超时: query={}, pageNumber={}", query, pageNumber, e);
+            // 如果有 Future：future.cancel(true);
+            throw new RuntimeException("网页搜索超时: " + query, e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt(); // 恢复中断标记
+            log.error("网页搜索被中断: query={}, pageNumber={}", query, pageNumber, e);
+            throw new RuntimeException("网页搜索被中断: " + query, e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof io.grpc.StatusRuntimeException sre) {
+                log.error("gRPC 调用失败(封装在 ExecutionException): code={}, desc={}, query={}, pageNumber={}",
+                        sre.getStatus().getCode(), sre.getStatus().getDescription(), query, pageNumber, sre);
+                throw new RuntimeException("gRPC service call failed: " + sre.getStatus(), sre);
+            }
+            log.error("网页搜索执行失败: query={}, pageNumber={}", query, pageNumber, e);
+            throw new RuntimeException("网页搜索执行失败: " + query, e);
         }
     }
 

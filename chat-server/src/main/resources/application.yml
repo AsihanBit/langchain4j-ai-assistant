@@ -2,7 +2,7 @@ spring:
   application:
     name: AiService
   profiles:
-    active: dev
+    active: prod
 
   # MySQL数据库配置
   datasource:
@@ -170,5 +170,8 @@ logging:
     com:
       aiassist: DEBUG
   #          tools: INFO
-  pattern:
-    console: "%msg%n"
+#  pattern:
+#    console: "%msg%n"
+log:
+  file:
+    path: ${log.file.path}
