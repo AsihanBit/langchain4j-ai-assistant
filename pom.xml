@@ -21,10 +21,16 @@
     <developers>
         <developer/>
     </developers>
+    <properties>
+        <java.version>17</java.version>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
     <modules>
         <module>ai-core</module>
-        <module>chat-server</module>
         <module>chat-core</module>
+        <module>chat-server</module>
         <module>rpc-service</module>
         <module>general-services</module>
     </modules>
@@ -34,9 +40,6 @@
         <tag/>
         <url/>
     </scm>
-    <properties>
-        <java.version>17</java.version>
-    </properties>
 
     <dependencyManagement>
         <dependencies>
@@ -197,10 +200,6 @@
 
     <build>
         <plugins>
-            <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
